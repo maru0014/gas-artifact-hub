@@ -1,0 +1,7 @@
+# Ignore all files by default
+**/*
+
+# Only include files in src/
+!appsscript.json
+!*.gs
+!*.html

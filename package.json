@@ -1,0 +1,32 @@
+{
+  "name": "gas-artifact-hub",
+  "version": "1.0.0",
+  "description": "アーティファクトをGASだけで社内に配れるプラットフォーム",
+  "main": "src/Main.gs",
+  "private": true,
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test tools/*.test.js poc/03-fixed-url-version/cache-version-test.js",
+    "check": "node tools/syntax-check.js",
+    "check:public": "node tools/check-public-files.js",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "preview:test": "node tools/e2e/server.js",
+    "all": "npm run check && npm test && npm run check:public"
+  },
+  "keywords": [
+    "google-apps-script",
+    "artifacts",
+    "claude-artifacts",
+    "vibe-coding",
+    "sandbox",
+    "google-workspace"
+  ],
+  "author": "maru0014",
+  "license": "MIT",
+  "devDependencies": {
+    "@playwright/test": "1.63.0"
+  }
+}

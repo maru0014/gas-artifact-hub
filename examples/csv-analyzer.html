@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CSV Analyzer - GAS Artifact Hub Example</title>
+  <style>
+    :root {
+      --bg-color: #f8fafc;
+      --card-bg: #ffffff;
+      --text-main: #0f172a;
+      --text-muted: #64748b;
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --border-color: #e2e8f0;
+      --border-dashed: #cbd5e1;
+      --table-stripe: #f8fafc;
+      --table-hover: #f1f5f9;
+      --badge-bg: #e2e8f0;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg-color: #0f172a;
+        --card-bg: #1e293b;
+        --text-main: #f8fafc;
+        --text-muted: #94a3b8;
+        --primary: #3b82f6;
+        --primary-hover: #60a5fa;
+        --border-color: #334155;
+        --border-dashed: #475569;
+        --table-stripe: #1e293b;
+        --table-hover: #334155;
+        --badge-bg: #334155;
+      }
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: var(--bg-color);
+      color: var(--text-main);
+      padding: 1.5rem;
+      line-height: 1.5;
+    }
+    .container {
+      max-width: 960px;
+      margin: 0 auto;
+    }
+    header {
+      margin-bottom: 1.5rem;
+    }
+    h1 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      margin-bottom: 0.25rem;
+    }
+    p.subtitle {
+      color: var(--text-muted);
+      font-size: 0.875rem;
+    }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
+    .dropzone {
+      border: 2px dashed var(--border-dashed);
+      border-radius: 8px;
+      padding: 2.5rem 1.5rem;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.15s ease, background-color 0.15s ease;
+    }
+    .dropzone.dragover {
+      border-color: var(--primary);
+      background-color: rgba(37, 99, 235, 0.05);
+    }
+    .dropzone p {
+      margin-bottom: 0.5rem;
+      color: var(--text-muted);
+      font-size: 0.9375rem;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.5rem 1rem;
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      background-color: var(--card-bg);
+      color: var(--text-main);
+      font-size: 0.875rem;
+      font-weight: 600;
+      cursor: pointer;
+      user-select: none;
+      transition: background-color 0.15s ease;
+    }
+    .btn:hover {
+      background-color: var(--table-hover);
+    }
+    .btn-primary {
+      background-color: var(--primary);
+      color: #ffffff;
+      border-color: var(--primary);
+    }
+    .btn-primary:hover {
+      background-color: var(--primary-hover);
+    }
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+    .stat-item {
+      padding: 1rem;
+      background-color: var(--bg-color);
+      border-radius: 6px;
+      border: 1px solid var(--border-color);
+    }
+    .stat-label {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.25rem;
+    }
+    .stat-value {
+      font-size: 1.5rem;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+    }
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1rem;
+      margin-bottom: 1rem;
+    }
+    .search-input {
+      padding: 0.5rem 0.75rem;
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      background: var(--card-bg);
+      color: var(--text-main);
+      font-size: 0.875rem;
+      width: 100%;
+      max-width: 280px;
+    }
+    .table-container {
+      overflow-x: auto;
+      max-height: 440px;
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.875rem;
+      text-align: left;
+    }
+    th, td {
+      padding: 0.625rem 0.875rem;
+      border-bottom: 1px solid var(--border-color);
+      white-space: nowrap;
+    }
+    th {
+      position: sticky;
+      top: 0;
+      background-color: var(--card-bg);
+      font-weight: 600;
+      border-bottom: 2px solid var(--border-color);
+      z-index: 1;
+    }
+    tr:nth-child(even) td {
+      background-color: var(--table-stripe);
+    }
+    tr:hover td {
+      background-color: var(--table-hover);
+    }
+    .empty-state {
+      padding: 2rem;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 0.875rem;
+    }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>CSV Analyzer</h1>
+      <p class="subtitle">ブラウザ内だけで安全にパース・集計するサンプル（外部通信ゼロ、安全なBlobダウンロード）</p>
+    </header>
+
+    <div class="card">
+      <div class="dropzone" id="dropzone" role="button" tabindex="0" aria-label="CSVファイルを選択またはドラッグ＆ドロップ">
+        <p>ここにCSVファイルをドラッグ＆ドロップ、またはクリックして選択</p>
+        <button type="button" class="btn">ファイルを選択</button>
+        <input type="file" id="file-input" accept=".csv,text/csv" class="hidden">
+      </div>
+    </div>
+
+    <div id="result-section" class="card hidden">
+      <div class="stats-grid">
+        <div class="stat-item">
+          <div class="stat-label">総レコード数</div>
+          <div class="stat-value" id="stat-rows">0</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-label">列数</div>
+          <div class="stat-value" id="stat-cols">0</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-label">絞り込み件数</div>
+          <div class="stat-value" id="stat-filtered">0</div>
+        </div>
+      </div>
+
+      <div class="toolbar">
+        <input type="text" id="search-input" class="search-input" placeholder="キーワードで全文検索...">
+        <button type="button" id="btn-download" class="btn btn-primary">
+          絞り込み結果をCSV出力
+        </button>
+      </div>
+
+      <div class="table-container">
+        <table id="data-table">
+          <thead id="table-head"></thead>
+          <tbody id="table-body"></tbody>
+        </table>
+      </div>
+      <div id="empty-message" class="empty-state hidden">一致するデータが見つかりませんでした。</div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      'use strict';
+      var dropzone = document.getElementById('dropzone');
+      var fileInput = document.getElementById('file-input');
+      var resultSection = document.getElementById('result-section');
+      var statRows = document.getElementById('stat-rows');
+      var statCols = document.getElementById('stat-cols');
+      var statFiltered = document.getElementById('stat-filtered');
+      var searchInput = document.getElementById('search-input');
+      var tableHead = document.getElementById('table-head');
+      var tableBody = document.getElementById('table-body');
+      var emptyMsg = document.getElementById('empty-message');
+      var btnDownload = document.getElementById('btn-download');
+
+      var headers = [];
+      var rows = [];
+      var filteredRows = [];
+
+      function parseCSV(text) {
+        var lines = text.split(/\r?\n/);
+        var result = [];
+        for (var i = 0; i < lines.length; i++) {
+          var line = lines[i].trim();
+          if (!line) continue;
+          // 簡易CSVパース（カンマ区切りおよびダブルクォート対応）
+          var row = [];
+          var inQuote = false;
+          var token = '';
+          for (var c = 0; c < line.length; c++) {
+            var ch = line[c];
+            if (ch === '"') {
+              inQuote = !inQuote;
+            } else if (ch === ',' && !inQuote) {
+              row.push(token.trim());
+              token = '';
+            } else {
+              token += ch;
+            }
+          }
+          row.push(token.trim());
+          result.push(row);
+        }
+        return result;
+      }
+
+      function handleFile(file) {
+        if (!file) return;
+        var reader = new FileReader();
+        reader.onload = function (e) {
+          var text = e.target.result;
+          var parsed = parseCSV(text);
+          if (parsed.length === 0) {
+            alert('有効なCSVデータが見つかりませんでした。');
+            return;
+          }
+          headers = parsed[0];
+          rows = parsed.slice(1);
+          filteredRows = rows;
+          renderTable();
+          resultSection.classList.remove('hidden');
+        };
+        reader.readAsText(file, 'UTF-8');
+      }
+
+      function renderTable() {
+        statRows.textContent = rows.length;
+        statCols.textContent = headers.length;
+        statFiltered.textContent = filteredRows.length;
+
+        // Render Head
+        tableHead.innerHTML = '';
+        var headTr = document.createElement('tr');
+        headers.forEach(function (h) {
+          var th = document.createElement('th');
+          th.textContent = h;
+          headTr.appendChild(th);
+        });
+        tableHead.appendChild(headTr);
+
+        // Render Body (max 100 preview)
+        tableBody.innerHTML = '';
+        var previewLimit = Math.min(filteredRows.length, 100);
+        for (var r = 0; r < previewLimit; r++) {
+          var tr = document.createElement('tr');
+          var rowData = filteredRows[r];
+          for (var c = 0; c < headers.length; c++) {
+            var td = document.createElement('td');
+            td.textContent = rowData[c] || '';
+            tr.appendChild(td);
+          }
+          tableBody.appendChild(tr);
+        }
+
+        if (filteredRows.length === 0) {
+          emptyMsg.classList.remove('hidden');
+        } else {
+          emptyMsg.classList.add('hidden');
+        }
+      }
+
+      function filterData(query) {
+        var q = query.toLowerCase().trim();
+        if (!q) {
+          filteredRows = rows;
+        } else {
+          filteredRows = rows.filter(function (row) {
+            return row.some(function (cell) {
+              return String(cell).toLowerCase().indexOf(q) !== -1;
+            });
+          });
+        }
+        renderTable();
+      }
+
+      // イベントリスナー
+      dropzone.addEventListener('click', function () { fileInput.click(); });
+      dropzone.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') {
+          fileInput.click();
+        }
+      });
+      fileInput.addEventListener('change', function (e) {
+        handleFile(e.target.files[0]);
+      });
+
+      dropzone.addEventListener('dragover', function (e) {
+        e.preventDefault();
+        dropzone.classList.add('dragover');
+      });
+      dropzone.addEventListener('dragleave', function () {
+        dropzone.classList.remove('dragover');
+      });
+      dropzone.addEventListener('drop', function (e) {
+        e.preventDefault();
+        dropzone.classList.remove('dragover');
+        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+          handleFile(e.dataTransfer.files[0]);
+        }
+      });
+
+      searchInput.addEventListener('input', function (e) {
+        filterData(e.target.value);
+      });
+
+      // ダウンロード処理：ユーザーのクリック操作起点
+      btnDownload.addEventListener('click', function () {
+        if (filteredRows.length === 0) {
+          alert('出力対象のデータがありません。');
+          return;
+        }
+        var csvLines = [];
+        csvLines.push(headers.map(function (h) { return '"' + h.replace(/"/g, '""') + '"'; }).join(','));
+        filteredRows.forEach(function (r) {
+          csvLines.push(r.map(function (c) { return '"' + String(c || '').replace(/"/g, '""') + '"'; }).join(','));
+        });
+        var csvContent = '\uFEFF' + csvLines.join('\r\n'); // BOM付きUTF-8
+        var blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = 'filtered_export.csv';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(function () { URL.revokeObjectURL(url); }, 100);
+      });
+    })();
+  </script>
+</body>
+</html>

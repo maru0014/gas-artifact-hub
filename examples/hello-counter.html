@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hello Counter - GAS Artifact Hub Example</title>
+  <style>
+    :root {
+      --bg-color: #f8fafc;
+      --card-bg: #ffffff;
+      --text-main: #0f172a;
+      --text-muted: #64748b;
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --border-color: #e2e8f0;
+      --danger: #ef4444;
+      --danger-hover: #dc2626;
+      --log-bg: #f1f5f9;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg-color: #0f172a;
+        --card-bg: #1e293b;
+        --text-main: #f8fafc;
+        --text-muted: #94a3b8;
+        --primary: #3b82f6;
+        --primary-hover: #60a5fa;
+        --border-color: #334155;
+        --danger: #f87171;
+        --danger-hover: #ef4444;
+        --log-bg: #111827;
+      }
+    }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: var(--bg-color);
+      color: var(--text-main);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      padding: 1rem;
+    }
+    .card {
+      background-color: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 2rem;
+      width: 100%;
+      max-width: 440px;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+    }
+    h1 {
+      font-size: 1.25rem;
+      font-weight: 700;
+      margin-bottom: 0.25rem;
+    }
+    p.desc {
+      color: var(--text-muted);
+      font-size: 0.875rem;
+      margin-bottom: 1.5rem;
+    }
+    .counter-display {
+      font-size: 3.5rem;
+      font-weight: 800;
+      text-align: center;
+      margin: 1.5rem 0;
+      font-variant-numeric: tabular-nums;
+      color: var(--primary);
+      transition: transform 0.1s ease;
+    }
+    .btn-group {
+      display: flex;
+      gap: 0.75rem;
+      margin-bottom: 1.25rem;
+    }
+    button {
+      flex: 1;
+      padding: 0.75rem 1rem;
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      background-color: var(--card-bg);
+      color: var(--text-main);
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background-color 0.15s ease, border-color 0.15s ease;
+      user-select: none;
+    }
+    button:focus-visible {
+      outline: 2px solid var(--primary);
+      outline-offset: 2px;
+    }
+    button.btn-primary {
+      background-color: var(--primary);
+      color: #ffffff;
+      border-color: var(--primary);
+    }
+    button.btn-primary:hover {
+      background-color: var(--primary-hover);
+    }
+    button.btn-danger:hover {
+      border-color: var(--danger);
+      color: var(--danger);
+    }
+    .controls {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 1.5rem;
+      font-size: 0.875rem;
+      color: var(--text-muted);
+    }
+    select {
+      background: var(--card-bg);
+      color: var(--text-main);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      padding: 0.25rem 0.5rem;
+      font-size: 0.875rem;
+    }
+    .log-box {
+      background-color: var(--log-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 0.75rem;
+      font-size: 0.75rem;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      max-height: 120px;
+      overflow-y: auto;
+    }
+    .log-box p {
+      margin-bottom: 0.25rem;
+      color: var(--text-muted);
+    }
+    .log-box p:last-child {
+      margin-bottom: 0;
+    }
+  </style>
+</head>
+<body>
+  <main class="card" role="region" aria-label="カウンターツール">
+    <h1>Hello Counter</h1>
+    <p class="desc">自己完結型アーティファクトの最小実装サンプルです（外部通信ゼロ）。</p>
+
+    <div class="counter-display" id="display" aria-live="polite" aria-atomic="true">0</div>
+
+    <div class="btn-group">
+      <button type="button" id="btn-dec" aria-label="減算">-</button>
+      <button type="button" id="btn-reset" class="btn-danger" aria-label="リセット">Reset</button>
+      <button type="button" id="btn-inc" class="btn-primary" aria-label="加算">+</button>
+    </div>
+
+    <div class="controls">
+      <label for="step-select">増減ステップ:</label>
+      <select id="step-select">
+        <option value="1">1</option>
+        <option value="5">5</option>
+        <option value="10">10</option>
+      </select>
+    </div>
+
+    <section aria-label="操作ログ">
+      <div class="log-box" id="log-box">
+        <p>[00:00:00] カウンター初期化完了</p>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    (function () {
+      'use strict';
+      var count = 0;
+      var step = 1;
+      var display = document.getElementById('display');
+      var logBox = document.getElementById('log-box');
+      var stepSelect = document.getElementById('step-select');
+
+      function padZero(num) {
+        return (num < 10 ? '0' : '') + num;
+      }
+
+      function logAction(action, val) {
+        var now = new Date();
+        var timeStr = '[' + padZero(now.getHours()) + ':' + padZero(now.getMinutes()) + ':' + padZero(now.getSeconds()) + '] ';
+        var p = document.createElement('p');
+        p.textContent = timeStr + action + ' -> ' + val;
+        logBox.insertBefore(p, logBox.firstChild);
+      }
+
+      function updateDisplay() {
+        display.textContent = count;
+      }
+
+      document.getElementById('btn-inc').addEventListener('click', function () {
+        count += step;
+        updateDisplay();
+        logAction('加算 (+' + step + ')', count);
+      });
+
+      document.getElementById('btn-dec').addEventListener('click', function () {
+        count -= step;
+        updateDisplay();
+        logAction('減算 (-' + step + ')', count);
+      });
+
+      document.getElementById('btn-reset').addEventListener('click', function () {
+        count = 0;
+        updateDisplay();
+        logAction('リセット', count);
+      });
+
+      stepSelect.addEventListener('change', function (e) {
+        step = parseInt(e.target.value, 10) || 1;
+        logAction('ステップ変更', step);
+      });
+
+      // キーボード操作サポート
+      window.addEventListener('keydown', function (e) {
+        if (e.key === 'ArrowUp' || e.key === '+') {
+          count += step;
+          updateDisplay();
+          logAction('キーボード加算', count);
+        } else if (e.key === 'ArrowDown' || e.key === '-') {
+          count -= step;
+          updateDisplay();
+          logAction('キーボード減算', count);
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="ja" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <base target="_top">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GAS Artifact Hub - Viewer</title>
+  <script>
+    var SERVER_ARTIFACT_ID = '<?!= artifactId || "" ?>';
+    var SERVER_VERSION_ID = '<?!= versionId || "" ?>';
+    var SERVER_APP_URL = '<?!= ScriptApp.getService().getUrl() ?>';
+  </script>
+  <?!= include_('ShellCss'); ?>
+</head>
+<body>
+
+  <!-- 1. 44px スリム固定ヘッダー（アーティファクトのUIと絶対に被らない） -->
+  <header class="top-header">
+    <div class="header-left">
+      <a href="<?= ScriptApp.getService().getUrl(); ?>" class="back-link" title="アーティファクト一覧へ戻る" target="_top" onclick="event.preventDefault(); navigateToAppList();">
+        <svg class="icon" viewBox="0 0 24 24"><line x1="19" x2="5" y1="12" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+        <span>アーティファクト一覧へ戻る</span>
+      </a>
+
+      <div class="tool-title" id="artifact-title">読込中...</div>
+
+      <!-- バージョン切り替えセレクター -->
+      <div class="version-selector" id="version-selector">
+        <button class="version-btn" id="versionBtn" onclick="toggleVersionDropdown()" aria-label="バージョン選択" aria-expanded="false">
+          <span id="currentVersionLabel">-</span>
+          <svg class="icon" style="width: 12px; height: 12px;" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <div class="version-dropdown" id="versionDropdown">
+          <!-- JSで動的にバージョン項目を挿入 -->
+        </div>
+      </div>
+
+      <!-- セキュリティ保護状態バッジ -->
+      <button class="badge-safe" id="security-badge" onclick="showSecurityModal()" aria-label="安全性診断を確認" style="border: 1px solid var(--badge-safe-border); cursor: pointer;">
+        <svg class="icon" style="width: 12px; height: 12px;" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        <span id="security-badge-text">検証中...</span>
+      </button>
+    </div>
+
+    <!-- 右側アクション（新版投稿・ソース・設定・共有） -->
+    <div class="header-right">
+      <!-- 編集者・作成者向け新版投稿ボタン -->
+      <button class="btn-header" id="btn-open-upload-modal" style="display: none;" onclick="openNewVersionModal()" aria-label="新しいバージョンを投稿">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
+        <span>新しいバージョンを投稿</span>
+      </button>
+
+      <!-- 編集者向け設定ボタン -->
+      <button class="btn-header" id="btn-open-settings-modal" style="display: none;" onclick="openSettingsModal()" aria-label="アーティファクト設定">
+        <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        <span>設定</span>
+      </button>
+
+      <!-- ソースコード閲覧 -->
+      <button class="btn-header" onclick="openSourceModal()" title="HTMLソースコードを確認" aria-label="ソースコードを確認">
+        <svg class="icon" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+        <span>ソース</span>
+      </button>
+
+      <!-- 共有リンクコピー -->
+      <button class="btn-header btn-header-primary" onclick="copyShareLink()" aria-label="共有URLをコピー">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+        <span>共有リンク</span>
+      </button>
+    </div>
+  </header>
+
+  <p class="risk-notice">入力情報の外部送信は防止しません。機密情報を扱う前に処理内容を確認してください。</p>
+
+  <!-- 2. サンドボックス実行コンテナ（44px直下から100%全画面） -->
+  <main class="sandbox-container">
+    <!-- ローディング表示 -->
+    <div id="loading-state" class="center-state">
+      <div class="spinner"></div>
+      <div style="font-size: 13px; color: var(--text-sub); margin-top: 12px;">アーティファクトを読み込んでいます...</div>
+    </div>
+
+    <!-- エラー表示 -->
+    <div id="error-state" class="center-state" style="display: none;">
+      <svg class="icon-xl" style="color: #ef4444; margin-bottom: 12px;" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>
+      <div id="error-message" style="font-size: 14px; font-weight: 600; color: #ef4444; margin-bottom: 12px;">読み込みエラーが発生しました</div>
+      <a href="<?= ScriptApp.getService().getUrl(); ?>" class="btn-action-ghost" target="_top" onclick="event.preventDefault(); navigateToAppList();">アーティファクト一覧へ戻る</a>
+    </div>
+
+    <!-- ゼロトラスト サンドボックス iframe -->
+    <iframe
+      id="artifact-sandbox"
+      class="sandbox-iframe"
+      title="アーティファクト実行サンドボックス"
+      sandbox="allow-scripts allow-downloads allow-forms allow-popups allow-modals">
+    </iframe>
+  </main>
+
+  <!-- 3. 初回同意モーダル（バージョン分離キー対応） -->
+  <div class="modal-backdrop" id="consent-overlay" role="dialog" aria-modal="true" aria-labelledby="consentTitle">
+    <div class="consent-box">
+      <div class="modal-head">
+        <span id="consentTitle" style="display: flex; align-items: center; gap: 8px;">
+          <svg class="icon" style="color: var(--accent);" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          アーティファクトの実行前確認
+        </span>
+      </div>
+      <div class="modal-body">
+        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px; line-height: 1.6;">
+          このアーティファクトは外部リソース読み込みや外部通信等の処理を含んでいます。以下の検出項目を確認して実行してください。<br>
+          <span style="font-size: 11px; color: var(--text-sub);">※各項目をクリックすると、ソースコードインスペクターの該当行へ直接ジャンプします。</span>
+        </p>
+
+        <!-- 安全判断ガイド（アコーディオン：初期折りたたみ） -->
+        <div class="safety-guide-card" id="safetyGuideCard">
+          <div class="safety-guide-toggle" onclick="toggleSafetyGuide()" tabindex="0" role="button" aria-expanded="false" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleSafetyGuide();}">
+            <span style="display: flex; align-items: center; gap: 6px;">
+              <svg class="icon" style="color: var(--accent);" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+              安全かどうかの判断チェックポイント
+            </span>
+            <svg class="icon chevron-icon" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+          </div>
+          <div class="safety-guide-content">
+            <div class="guide-item">
+              <span class="guide-item-tag" style="color: #1d4ed8;">
+                <svg class="icon" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+                外部読込 (EXTERNAL_TAG):
+              </span>
+              <span>外部CSSやスクリプトは配信元に接続します。既知のサービスでも内容・送信先・組織の利用方針を確認してください。</span>
+            </div>
+            <div class="guide-item">
+              <span class="guide-item-tag" style="color: #b45309;">
+                <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+                外部通信 (NETWORK):
+              </span>
+              <span>外部サーバーへの通信です。送信先と送信される情報を確認してください。</span>
+            </div>
+            <div class="guide-item">
+              <span class="guide-item-tag" style="color: #0f766e;">
+                <svg class="icon" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+                ブラウザ保存 (STORAGE):
+              </span>
+              <span>ブラウザへの保存処理です。この実行環境ではlocalStorage等が使えない場合があります。保存される情報を確認してください。</span>
+            </div>
+            <div class="guide-item">
+              <span class="guide-item-tag" style="color: #6b21a8;">
+                <svg class="icon" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                別ウィンドウ (POPUP):
+              </span>
+              <span>別のページやタブを開く処理です。移動先やログイン要求を確認してください。</span>
+            </div>
+            <div class="guide-item">
+              <span class="guide-item-tag" style="color: #991b1b;">
+                <svg class="icon" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+                動的評価 (DYNAMIC_EVAL):
+              </span>
+              <span>文字列からコードを実行する処理です。動作が不明な場合は実行せず、作成者に確認してください。</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 警告項目一覧 -->
+        <div class="warnings-box" id="consent-warnings-list"></div>
+
+        <!-- ゼロトラスト安心保証バナー -->
+        <div class="security-guarantee-banner">
+          <svg class="icon" style="color: #15803d; width: 18px; height: 18px; margin-top: 2px;" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          <div>
+            <strong>実行環境の制限と注意点</strong><br>
+            このアーティファクトは親画面から分離したiframeで実行されます。ただし、<strong>入力・選択した情報の外部送信、ダウンロード、偽のログイン画面、過大な処理を防ぐものではありません</strong>。機密情報を扱う前に作成者と処理内容を確認してください。
+          </div>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn-header" onclick="navigateToAppList()">実行せず一覧へ戻る</button>
+        <button class="btn-header" onclick="jumpToSourceLine(viewerState.activeWarningLine || 1, true)">ソースを確認</button>
+        <button class="btn-header btn-header-primary" onclick="acceptConsentAndExecute()">同意して実行する</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4. ソースコード閲覧モーダル（Stored XSS防止・重ね合わせ対応） -->
+  <div class="modal-backdrop" id="sourceModal" role="dialog" aria-modal="true" aria-labelledby="sourceTitle">
+    <div class="source-box">
+      <!-- ツールバー -->
+      <div class="source-header-toolbar">
+        <div class="source-header-left">
+          <!-- 確認画面に戻るボタン (モーダルが重なっている場合に表示) -->
+          <button class="btn-back-consent" id="btnBackToConsent" onclick="backToConsentModal()">
+            <svg class="icon" viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+            実行前確認に戻る
+          </button>
+
+          <span class="source-title-text" id="sourceTitle">
+            <svg class="icon" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+            ソースコード インスペクター
+          </span>
+
+          <!-- カテゴリフィルタボタン群 -->
+          <div class="filter-bar" id="categoryFilterBar">
+            <span class="filter-label">フィルタ:</span>
+          </div>
+        </div>
+
+        <div class="source-header-actions">
+          <button class="btn-header" onclick="downloadSource_()">HTMLを保存</button>
+          <!-- 現在の警告位置インジケーター -->
+          <span class="warning-counter-badge" id="warningPositionBadge">
+            0 / 0 件目
+          </span>
+
+          <button class="btn-nav-warn" onclick="navigateWarning(-1)" title="前の警告 (P)" aria-label="前の警告">
+            <svg class="icon" viewBox="0 0 24 24"><polyline points="18 15 12 9 6 15"/></svg>
+            <span class="shortcut-hint">P</span>
+          </button>
+          <button class="btn-nav-warn" onclick="navigateWarning(1)" title="次の警告 (N)" aria-label="次の警告">
+            <svg class="icon" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+            <span class="shortcut-hint">N</span>
+          </button>
+          <button class="btn-close-sm" onclick="closeSourceModal()" aria-label="閉じる" style="margin-left: 4px;">
+            <svg class="icon" viewBox="0 0 24 24"><line x1="18" x2="6" y1="6" y2="18"/><line x1="6" x2="18" y1="6" y2="18"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- エディタ風ソース表示エリア -->
+      <div class="source-editor-container" id="sourceEditorContainer">
+        <div class="source-lines-wrapper" id="source-code-area"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 5. セキュリティ詳細モーダル -->
+  <div class="modal-backdrop" id="securityModal" role="dialog" aria-modal="true" aria-labelledby="securityTitle">
+    <div class="consent-box">
+      <div class="modal-head">
+        <span id="securityTitle" style="display: flex; align-items: center; gap: 8px;">
+          <svg class="icon" style="color: var(--accent);" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          静的セキュリティ診断詳細
+        </span>
+        <button class="btn-close-sm" onclick="closeSecurityModal()" aria-label="閉じる">
+          <svg class="icon" viewBox="0 0 24 24"><line x1="18" x2="6" y1="6" y2="18"/><line x1="6" x2="18" y1="6" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="modal-body" id="security-details-content">
+        <!-- 検出項目一覧 -->
+      </div>
+      <div class="modal-foot">
+        <button class="btn-header" onclick="closeSecurityModal()">閉じる</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 6. 新バージョンアップロードモーダル -->
+  <div class="modal-backdrop" id="uploadModal" role="dialog" aria-modal="true" aria-labelledby="uploadModalTitle">
+    <div class="modal-box">
+      <div class="modal-head">
+        <span id="uploadModalTitle">新しいバージョンを投稿</span>
+        <button class="btn-close-sm" onclick="closeNewVersionModal()" aria-label="閉じる">
+          <svg class="icon" viewBox="0 0 24 24"><line x1="18" x2="6" y1="6" y2="18"/><line x1="6" x2="18" y1="6" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <!-- ファイル選択ドロップエリア -->
+        <button type="button" class="dropzone-mini" id="update-dropzone" onclick="document.getElementById('update-file-input').click()">
+          <svg class="icon" style="margin-bottom: 6px; color: var(--text-sub);" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
+          <div style="font-weight: 600; font-size: 13px; color: var(--text);" id="update-file-label">HTMLファイルを選択またはドロップ</div>
+          <div style="font-size: 11px; color: var(--text-sub);" id="update-file-sub">クリックしてファイルを選択 (.html / .htm)</div>
+        </button>
+        <input type="file" id="update-file-input" accept=".html,.htm" style="display: none;" onchange="handleUpdateFileInputChange(this.files)">
+
+        <!-- 静的セキュリティスキャン結果カード -->
+        <div class="scan-card" id="updateScanCard" style="display: none;">
+          <div class="scan-header">
+            <svg class="icon" style="color: var(--badge-safe-text);" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            <span id="update-scan-status-title">静的セキュリティ診断中...</span>
+          </div>
+          <div class="scan-row">
+            <span>ファイルサイズ</span>
+            <span id="update-scan-filesize">-</span>
+          </div>
+          <div class="scan-row">
+            <span>ネットワーク通信</span>
+            <span id="update-scan-network-status">-</span>
+          </div>
+          <div class="scan-row">
+            <span>Cookie / 認証情報アクセス</span>
+            <span id="update-scan-auth-status">-</span>
+          </div>
+        </div>
+
+      </div>
+      <div class="modal-foot">
+        <button class="btn-header" onclick="closeNewVersionModal()">キャンセル</button>
+        <button class="btn-header btn-header-primary" id="btn-submit-version" onclick="submitNewVersion()" disabled>新しいバージョンを公開する</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 7. 設定モーダル（メタデータ・ACL・無効化） -->
+  <div class="modal-backdrop" id="settingsModal" role="dialog" aria-modal="true" aria-labelledby="settingsModalTitle">
+    <div class="modal-box">
+      <div class="modal-head">
+        <span id="settingsModalTitle">アーティファクトの設定</span>
+        <button class="btn-close-sm" data-dialog-close onclick="closeSettingsModal()" aria-label="閉じる">
+          <svg class="icon" viewBox="0 0 24 24"><line x1="18" x2="6" y1="6" y2="18"/><line x1="6" x2="18" y1="6" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <p id="settingsModal-status" class="settings-status" role="status"></p>
+        <div style="margin-bottom: 14px;">
+          <label class="modal-label" for="settings-title">表示タイトル</label>
+          <input type="text" class="modal-input" id="settings-title" maxlength="100">
+        </div>
+        <div style="margin-bottom: 14px;">
+          <label class="modal-label" for="settings-desc">説明・用途</label>
+          <textarea class="modal-input" id="settings-desc" rows="2" maxlength="200"></textarea>
+        </div>
+        <div style="margin-bottom: 14px;">
+          <label class="modal-label">公開範囲</label>
+          <select class="modal-input" id="settings-visibility" onchange="toggleSettingsAclSection()">
+            <option value="all">全社公開 (組織全体)</option>
+            <option value="list">限定公開 (特定メンバー)</option>
+            <option value="private">自分のみ (非公開)</option>
+          </select>
+        </div>
+        <div class="acl-section" id="settings-acl-section" style="display: none;">
+          <label class="modal-label">閲覧・編集を許可するメンバー</label>
+          <div id="settings-acl-rows"><!-- JSで行を描画 --></div>
+          <div class="acl-add-row">
+            <input type="email" class="modal-input" id="settings-acl-email-input" placeholder="email@company.com">
+            <select class="modal-input acl-role-select" id="settings-acl-role-select">
+              <option value="viewer">閲覧のみ</option>
+              <option value="editor">編集可</option>
+            </select>
+            <button class="btn-header" onclick="addAclMember()">追加</button>
+          </div>
+        </div>
+        <div style="border-top: 1px solid var(--border); padding-top: 14px; margin-top: 14px;">
+          <button class="btn-header" style="color: #ef4444; border-color: rgba(239, 68, 68, 0.3);" onclick="handleDeleteArtifact()">このアーティファクトを無効化（削除）する</button>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn-header" data-dialog-close onclick="closeSettingsModal()">キャンセル</button>
+        <button class="btn-header btn-header-primary" id="btn-save-settings" onclick="saveSettings()">設定を保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 8. 削除完了モーダル（実際のボタンクリックからのみ遷移させ、トップフレーム遷移をブロックされないようにする） -->
+  <div class="modal-backdrop" id="deleteDoneModal" role="dialog" aria-modal="true" aria-labelledby="deleteDoneModalTitle">
+    <div class="modal-box" style="max-width: 380px;">
+      <div class="modal-head">
+        <span id="deleteDoneModalTitle">無効化が完了しました</span>
+      </div>
+      <div class="modal-body">
+        <p style="font-size: 13px; color: var(--text-muted); margin: 0;">このアーティファクトを無効化しました。新しいアクセスは拒否されます。既に開かれた画面は終了されません。</p>
+      </div>
+      <div class="modal-foot">
+        <button class="btn-header btn-header-primary" onclick="navigateToAppList()">アーティファクト一覧へ戻る</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- トースト通知 -->
+  <div class="toast" id="toast" role="status" aria-live="polite">
+    <svg class="icon" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+    <span id="toastMsg">URLをコピーしました</span>
+  </div>
+
+  <?!= include_('ShellJs'); ?>
+</body>
+</html>

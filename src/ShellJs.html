@@ -1,0 +1,1380 @@
+<script>
+  // 保存禁止や容量超過でも、画面の操作はこのページ内のメモリで継続する。
+  const memoryStorage_ = Object.create(null);
+  function readStorage_(key) {
+    if (Object.prototype.hasOwnProperty.call(memoryStorage_, key)) return memoryStorage_[key];
+    try { return localStorage.getItem(key); } catch (error) { return null; }
+  }
+  function writeStorage_(key, value) {
+    memoryStorage_[key] = String(value);
+    try { localStorage.setItem(key, String(value)); } catch (error) { /* 保存できない環境ではページ内のみ保持 */ }
+  }
+
+
+  const dialogStack_ = [];
+  function showDialog_(id) {
+    const dialog = document.getElementById(id);
+    if (!dialog) return;
+    if (!dialog.classList.contains('show')) {
+      dialog._previousFocus = document.activeElement;
+      dialogStack_.push(id);
+    }
+    dialog.classList.add('show');
+    dialog.inert = false;
+    dialog.setAttribute('tabindex', '-1');
+    const first = dialog.querySelector('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href]');
+    (first || dialog).focus();
+  }
+  function hideDialog_(id) {
+    const dialog = document.getElementById(id);
+    if (!dialog) return;
+    dialog.classList.remove('show');
+    dialog.inert = true;
+    const index = dialogStack_.lastIndexOf(id);
+    if (index >= 0) dialogStack_.splice(index, 1);
+    if (dialog._previousFocus && dialog._previousFocus.isConnected) dialog._previousFocus.focus();
+  }
+  function setupDialogKeyboard_() {
+    document.addEventListener('keydown', function (event) {
+      if (event.key !== 'Tab') return;
+      const id = dialogStack_[dialogStack_.length - 1];
+      const dialog = id && document.getElementById(id);
+      if (!dialog || !dialog.classList.contains('show')) return;
+      const focusable = Array.from(dialog.querySelectorAll('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex="0"]')).filter(el => el.getClientRects().length);
+      if (!focusable.length) { event.preventDefault(); dialog.focus(); return; }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && (document.activeElement === first || !dialog.contains(document.activeElement))) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && (document.activeElement === last || !dialog.contains(document.activeElement))) { event.preventDefault(); first.focus(); }
+    });
+  }
+  function setDialogDisabled_(id, disabled) {
+    document.getElementById(id).querySelectorAll('input, textarea, select, button:not([data-dialog-close])').forEach(el => { el.disabled = disabled; });
+  }
+  function copyText_(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(() => showToast('共有リンクをコピーしました')).catch(() => window.prompt('次のURLをコピーしてください', text));
+    } else { window.prompt('次のURLをコピーしてください', text); }
+  }
+
+  var viewerState = {
+    artifactId: '',
+    currentVersionId: '',
+    artifactData: null,
+    htmlPayload: '',
+    warnings: [],
+    activeWarningLine: 1,
+    isEditor: false,
+    isCustodian: false,
+    maxHtmlSizeKb: 1024,
+    requestId: 0,
+    loading: false
+  };
+
+  var inspectorState = {
+    isFromConsentContext: false,
+    currentFilter: 'ALL',
+    filteredWarnings: []
+  };
+
+  var updateState = {
+    file: null,
+    htmlContent: '',
+    fileReadId: 0,
+    busy: false
+  };
+
+  /**
+   * script.google.com の正規URLかどうかを厳格に検証（オープンリダイレクト防止）
+   */
+  function isValidScriptAppUrl(url) {
+    if (!url || typeof url !== 'string') return false;
+    return /^https:\/\/(?:[a-zA-Z0-9-]+\.)*script\.google\.com(?::\d+)?\//i.test(url);
+  }
+
+  /**
+   * 現在のコンテキスト（/dev または /exec、特定のアカウント/u/1/等）を保持したベースURLを解決
+   */
+  function getAppBaseUrl() {
+    var rawUrl = '';
+
+    // 1. 同一オリジンの場合、最上位ウィンドウ（window.top）のURLを直接取得
+    try {
+      if (window.top && window.top.location && window.top.location.href) {
+        var topHref = window.top.location.href;
+        if (isValidScriptAppUrl(topHref)) {
+          rawUrl = topHref;
+        }
+      }
+    } catch (e) {
+      // クロスオリジンの場合は安全にフォールバック
+    }
+
+    // 2. document.referrer が script.google.com の場合（親フレームからのアクセス）
+    if (!rawUrl) {
+      try {
+        if (isValidScriptAppUrl(document.referrer)) {
+          rawUrl = document.referrer;
+        }
+      } catch (e) {}
+    }
+
+    // 3. サーバーから渡された URL (ScriptApp.getService().getUrl())
+    if (!rawUrl && typeof SERVER_APP_URL !== 'undefined' && SERVER_APP_URL) {
+      rawUrl = String(SERVER_APP_URL).trim().replace(/^["']+|["']+$/g, '');
+    }
+
+    // 4. フォールバック
+    if (!rawUrl) {
+      rawUrl = window.location.origin + window.location.pathname;
+    }
+
+    // クエリパラメータ (?a=xxx, ?v=xxx 等) やハッシュ (#...) を完全に除去して純粋なアプリURLを返す
+    return rawUrl.split('?')[0].split('#')[0];
+  }
+
+  /**
+   * アーティファクト一覧へ安全にトップ遷移（接続拒否・アクセス権エラーを完全防止）
+   */
+  function navigateToAppList() {
+    var listUrl = getAppBaseUrl();
+    if (!listUrl) {
+      listUrl = (typeof SERVER_APP_URL !== 'undefined' && SERVER_APP_URL) ? String(SERVER_APP_URL).trim() : './';
+    }
+    listUrl = listUrl.split('?')[0].split('#')[0];
+
+    try {
+      if (window.top) {
+        window.top.location.href = listUrl;
+        return;
+      }
+    } catch (e) {
+      try {
+        window.open(listUrl, '_top');
+        return;
+      } catch (e2) {}
+    }
+
+    window.location.href = listUrl;
+  }
+
+  window.addEventListener('DOMContentLoaded', function () {
+    setupDialogKeyboard_();
+    // テーマ初期化
+    var savedTheme = readStorage_('hub_theme') || 'light';
+    document.documentElement.setAttribute('data-theme', savedTheme);
+
+    // URLパラメータから artifactId を取得 (?a=xxx または ?id=xxx)、またはサーバー変数から取得
+    var params = new URLSearchParams(window.location.search);
+    viewerState.artifactId = params.get('a') || params.get('id') || (typeof SERVER_ARTIFACT_ID !== 'undefined' ? SERVER_ARTIFACT_ID : '');
+    var initialVer = params.get('v') || (typeof SERVER_VERSION_ID !== 'undefined' ? SERVER_VERSION_ID : '');
+
+    if (!viewerState.artifactId) {
+      showError('アーティファクトIDが指定されていません。URLを確認してください。');
+      return;
+    }
+
+    loadArtifactDetails(initialVer);
+    setupGlobalShortcuts();
+    setupUpdateDropzone();
+  });
+
+  function setupGlobalShortcuts() {
+    window.addEventListener('keydown', function (e) {
+      // フォーム入力中はショートカットを無効化
+      var activeTag = document.activeElement ? document.activeElement.tagName.toLowerCase() : '';
+      if (e.key !== 'Escape' && (activeTag === 'input' || activeTag === 'textarea' || activeTag === 'select')) {
+        return;
+      }
+
+      var srcModal = document.getElementById('sourceModal');
+      var isSrcOpen = srcModal && srcModal.classList.contains('show');
+
+      if (e.key === 'Escape') {
+        if (isSrcOpen) {
+          if (inspectorState.isFromConsentContext) {
+            backToConsentModal();
+          } else {
+            closeSourceModal();
+          }
+        } else {
+          closeAllModals();
+        }
+        return;
+      }
+
+      // ソースコードインスペクター表示中の前後ナビゲーションショートカット
+      if (isSrcOpen) {
+        // ブラウザ標準ショートカット（Ctrl+N, Ctrl+P, Cmd+N 等）との競合を防止
+        if (e.ctrlKey || e.metaKey || e.altKey) {
+          return;
+        }
+
+        if (e.key === 'n' || e.key === 'N') {
+          if (e.shiftKey) {
+            navigateWarning(-1);
+          } else {
+            navigateWarning(1);
+          }
+        } else if (e.key === 'p' || e.key === 'P') {
+          navigateWarning(-1);
+        }
+      }
+    });
+  }
+
+  function closeAllModals() {
+    const top = dialogStack_[dialogStack_.length - 1];
+    if (top === 'consent-overlay' || top === 'deleteDoneModal') return;
+    if (top === 'settingsModal') closeSettingsModal();
+    else if (top === 'uploadModal') closeNewVersionModal();
+    else if (top) hideDialog_(top);
+    const dropdown = document.getElementById('versionDropdown');
+    dropdown.classList.remove('show');
+    document.getElementById('versionBtn').setAttribute('aria-expanded', 'false');
+  }
+
+  function loadArtifactDetails(targetVersionId) {
+    if (updateState.busy || settingsAclDraft.saving) return;
+    const requestId = ++viewerState.requestId;
+    viewerState.loading = true;
+    viewerState.htmlPayload = '';
+    hideDialog_('consent-overlay');
+    hideDialog_('sourceModal');
+    document.getElementById('loading-state').style.display = 'flex';
+    document.getElementById('error-state').style.display = 'none';
+
+    // 以前のバージョン実行インスタンスを確実にアンマウント
+    var iframe = document.getElementById('artifact-sandbox');
+    if (iframe) {
+      iframe.srcdoc = '';
+    }
+
+    google.script.run
+      .withSuccessHandler(function (res) {
+        if (requestId !== viewerState.requestId) return;
+        viewerState.loading = false;
+        document.getElementById('loading-state').style.display = 'none';
+
+        if (!res.ok) {
+          showError(res.error || 'アーティファクトを取得できませんでした。');
+          return;
+        }
+
+        var data = res.data;
+        viewerState.artifactData = data;
+        viewerState.currentVersionId = data.currentVersion ? data.currentVersion.versionId : '';
+        viewerState.htmlPayload = data.rawHtml || '';
+        viewerState.warnings = (data.currentVersion && data.currentVersion.warnings) ? data.currentVersion.warnings : [];
+        viewerState.activeWarningLine = viewerState.warnings.length > 0 ? viewerState.warnings[0].line : 1;
+        inspectorState.filteredWarnings = viewerState.warnings.slice();
+        inspectorState.currentFilter = 'ALL';
+        viewerState.isEditor = !!data.isEditor;
+        viewerState.isCustodian = !!data.isCustodian;
+        viewerState.maxHtmlSizeKb = Number(data.maxHtmlSizeKb) || 1024;
+
+        // UI反映
+        renderHeaderInfo(data);
+        renderVersionDropdown(data.versions, viewerState.currentVersionId);
+        renderFilterButtons();
+        document.getElementById('source-code-area').textContent = '';
+
+        // 権限別ボタン表示
+        document.getElementById('btn-open-upload-modal').style.display = viewerState.isEditor ? 'inline-flex' : 'none';
+        document.getElementById('btn-open-settings-modal').style.display = viewerState.isEditor ? 'inline-flex' : 'none';
+
+        // 実行判定 (警告がある場合は初回同意確認、ない場合は即座に実行)
+        checkConsentAndExecute();
+      })
+      .withFailureHandler(function (err) {
+        if (requestId !== viewerState.requestId) return;
+        viewerState.loading = false;
+        document.getElementById('loading-state').style.display = 'none';
+        showError('サーバー通信エラー: ' + err.message);
+      })
+      .apiGetArtifact(viewerState.artifactId, targetVersionId || '');
+  }
+
+  function renderHeaderInfo(data) {
+    var art = data.artifact || {};
+    var ver = data.currentVersion || {};
+    document.getElementById('artifact-title').textContent = art.title || art.artifactId || viewerState.artifactId;
+    document.getElementById('currentVersionLabel').textContent = 'v' + (ver.versionNum || '1');
+
+    var badge = document.getElementById('security-badge');
+    var badgeText = document.getElementById('security-badge-text');
+
+    if (viewerState.warnings && viewerState.warnings.length > 0) {
+      badge.className = 'badge-safe badge-warn';
+      badgeText.textContent = '警告: ' + viewerState.warnings.length + '件';
+    } else {
+      badge.className = 'badge-safe';
+      badgeText.textContent = '静的検査: 検出なし';
+    }
+  }
+
+  function renderVersionDropdown(versions, currentVerId) {
+    var dd = document.getElementById('versionDropdown');
+    dd.innerHTML = '';
+
+    if (!versions || versions.length === 0) {
+      var defaultItem = document.createElement('div');
+      defaultItem.className = 'version-item current';
+      var span = document.createElement('span');
+      span.textContent = '最新版';
+      defaultItem.appendChild(span);
+      dd.appendChild(defaultItem);
+      return;
+    }
+
+    versions.forEach(function (v) {
+      var item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'version-item' + (v.versionId === currentVerId ? ' current' : '');
+      item.onclick = function () {
+        switchVersion(v.versionId);
+      };
+
+      var verSpan = document.createElement('span');
+      verSpan.textContent = 'v' + (v.versionNum || '1');
+
+      var dateStr = v.createdAt ? new Date(v.createdAt).toLocaleDateString('ja-JP') : '';
+      var dateSpan = document.createElement('span');
+      dateSpan.style.fontSize = '10px';
+      dateSpan.style.color = 'var(--text-sub)';
+      dateSpan.textContent = dateStr;
+
+      item.appendChild(verSpan);
+      item.appendChild(dateSpan);
+      dd.appendChild(item);
+    });
+  }
+
+  function toggleVersionDropdown() {
+    var dd = document.getElementById('versionDropdown');
+    dd.classList.toggle('show');
+    var btn = document.getElementById('versionBtn');
+    btn.setAttribute('aria-expanded', dd.classList.contains('show'));
+  }
+
+  function switchVersion(targetVersionId) {
+    if (viewerState.loading || updateState.busy || settingsAclDraft.saving) return;
+    toggleVersionDropdown();
+    if (targetVersionId === viewerState.currentVersionId) return;
+
+    // 編集者の場合は正式なバージョン切り替えAPIを呼ぶか確認
+    if (viewerState.isEditor) {
+      if (confirm('このバージョンを社内全体の公開バージョンとして切り替えますか？')) {
+        google.script.run
+          .withSuccessHandler(function (res) {
+            if (!res.ok) {
+              showToast('切り替え失敗: ' + res.error);
+              return;
+            }
+            showToast('公開バージョンを切り替えました');
+            loadArtifactDetails();
+          })
+          .withFailureHandler(error => showToast('通信エラー: ' + error.message))
+          .apiSwitchVersion(viewerState.artifactId, targetVersionId);
+        return;
+      }
+    }
+
+    // プレビュー表示
+    showToast('バージョンを切り替えて読み込み中...');
+    loadArtifactDetails(targetVersionId);
+  }
+
+  // 同意判定と実行
+  function getConsentKey_() {
+    return 'consent_' + ((viewerState.artifactData && viewerState.artifactData.userEmail) || '') + '_' + viewerState.artifactId + '_' + viewerState.currentVersionId;
+  }
+  function checkConsentAndExecute() {
+    if (viewerState.loading) return;
+    var hasConsented = readStorage_(getConsentKey_());
+
+    if (viewerState.warnings && viewerState.warnings.length > 0 && !hasConsented) {
+      // 警告があり、未承諾の場合は同意モーダルを表示
+      renderConsentModal(viewerState.warnings);
+      showDialog_('consent-overlay');
+    } else {
+      executeInSandbox();
+    }
+  }
+
+  // 安全なインラインSVG生成ヘルパー (Stored XSS完全防止)
+  function createSvgIcon(viewBox, pathData, polyPoints) {
+    var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('class', 'icon');
+    svg.setAttribute('viewBox', viewBox);
+    if (pathData) {
+      var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('d', pathData);
+      svg.appendChild(path);
+    }
+    if (polyPoints) {
+      var poly = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+      poly.setAttribute('points', polyPoints);
+      svg.appendChild(poly);
+    }
+    return svg;
+  }
+
+  // 警告メタデータの補完解決
+  function resolveWarningMetadata(w) {
+    if (w.rule === 'SCAN_TRUNCATED') {
+      return {
+        title: '検査結果の一部を省略しました',
+        explanation: w.message || '警告数が多いため、以降の検査結果を省略しました。'
+      };
+    }
+
+    var title = w.simpleTitle;
+    var explanation = w.userExplanation;
+
+    if (!title) {
+      if (w.category === 'EXTERNAL_TAG') {
+        if (w.cdnMeta && w.cdnMeta.name) {
+          title = '外部リソース読込: ' + w.cdnMeta.name;
+        } else {
+          title = '外部リソース読込 (' + (w.attribute || 'src/href') + ')';
+        }
+      } else if (w.category === 'NETWORK') {
+        title = '外部サーバーとのデータ通信 (' + (w.attribute || 'API通信') + ')';
+      } else if (w.category === 'POPUP') {
+        title = '別タブでWebページを開く処理 (' + (w.attribute || 'window.open') + ')';
+      } else if (w.category === 'STORAGE') {
+        title = 'ブラウザ設定・データの一時保存 (' + (w.attribute || 'localStorage') + ')';
+      } else if (w.category === 'DYNAMIC_EVAL') {
+        title = '動的コード実行・計算処理 (' + (w.attribute || 'eval') + ')';
+      } else {
+        title = w.message || '検出項目';
+      }
+    }
+
+    if (!explanation) {
+      if (w.category === 'EXTERNAL_TAG') {
+        explanation = (w.cdnMeta && w.cdnMeta.info)
+          ? w.cdnMeta.info
+          : '外部サーバーからリソースを取得します。不審なURLでないかご確認ください。';
+      } else if (w.category === 'NETWORK') {
+        explanation = '外部サーバーと通信する可能性があります。送信先と送信される情報を確認してください。';
+      } else if (w.category === 'POPUP') {
+        explanation = '別のページやタブを開く処理です。移動先やログイン要求を確認してください。';
+      } else if (w.category === 'STORAGE') {
+        explanation = 'ブラウザへの保存処理です。この実行環境ではlocalStorage等が使えない場合があります。データの扱いを作成者に確認してください。';
+      } else if (w.category === 'DYNAMIC_EVAL') {
+        explanation = '文字列からコードを実行する処理です。実際の動作が静的検査で分からない場合があります。';
+      } else {
+        explanation = w.message || 'コード内に該当の処理が検出されました。';
+      }
+    }
+
+    return { title: title, explanation: explanation };
+  }
+
+  // 安全判断ガイド（アコーディオン）開閉
+  function toggleSafetyGuide() {
+    var card = document.getElementById('safetyGuideCard');
+    if (card) {
+      card.classList.toggle('open');
+      var toggle = card.querySelector('.safety-guide-toggle');
+      if (toggle) {
+        toggle.setAttribute('aria-expanded', card.classList.contains('open') ? 'true' : 'false');
+      }
+    }
+  }
+
+  // 1. 同意確認モーダルの安全レンダリング (Stored XSS防止: textContent/DOM生成)
+  function renderConsentModal(warnings) {
+    var list = document.getElementById('consent-warnings-list');
+    if (!list) return;
+    list.innerHTML = '';
+
+    if (!warnings || warnings.length === 0) {
+      list.innerHTML = '<div style="padding: 10px; font-size: 12px; color: var(--text-sub);">検出された項目はありません。</div>';
+      return;
+    }
+
+    warnings.forEach(function (w) {
+      var meta = resolveWarningMetadata(w);
+
+      var item = document.createElement('div');
+      item.className = 'warning-item-interactive';
+      item.title = 'クリックするとソースコードの ' + w.line + ' 行目を表示します';
+
+      var badge = document.createElement('span');
+      var badgeClass = 'cat-badge ';
+      if (w.category === 'EXTERNAL_TAG') badgeClass += 'cat-badge-external';
+      else if (w.category === 'NETWORK') badgeClass += 'cat-badge-network';
+      else if (w.category === 'POPUP') badgeClass += 'cat-badge-popup';
+      else if (w.category === 'STORAGE') badgeClass += 'cat-badge-storage';
+      else if (w.category === 'DYNAMIC_EVAL') badgeClass += 'cat-badge-eval';
+      else badgeClass += 'cat-badge-all';
+      badge.className = badgeClass;
+      badge.textContent = w.category;
+
+      var content = document.createElement('div');
+      content.className = 'warning-content-col';
+
+      var mainMsg = document.createElement('div');
+      mainMsg.className = 'warning-main-msg';
+      mainMsg.textContent = meta.title;
+
+      if (w.cdnMeta) {
+        var safeBadge = document.createElement('span');
+        safeBadge.className = 'safe-resource-badge';
+        safeBadge.appendChild(createSvgIcon('0 0 24 24', null, '20 6 9 17 4 12'));
+        safeBadge.appendChild(document.createTextNode(' ' + (w.cdnMeta.label || '公式配信')));
+        mainMsg.appendChild(safeBadge);
+      }
+
+      content.appendChild(mainMsg);
+
+      if (w.url) {
+        var urlDiv = document.createElement('div');
+        urlDiv.style.marginTop = '2px';
+        var urlCode = document.createElement('code');
+        urlCode.className = 'warning-url-code';
+        urlCode.textContent = w.url;
+        urlDiv.appendChild(urlCode);
+        content.appendChild(urlDiv);
+      }
+
+      var descDiv = document.createElement('div');
+      descDiv.className = 'warning-detail-desc';
+      var infoIcon = createSvgIcon('0 0 24 24', null, null);
+      var circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      circle.setAttribute('cx', '12'); circle.setAttribute('cy', '12'); circle.setAttribute('r', '10');
+      infoIcon.appendChild(circle);
+      infoIcon.style.width = '12px';
+      infoIcon.style.height = '12px';
+      descDiv.appendChild(infoIcon);
+      descDiv.appendChild(document.createTextNode(' ' + meta.explanation));
+      content.appendChild(descDiv);
+
+      var lineSpan = document.createElement('span');
+      lineSpan.className = 'warning-line-link';
+      lineSpan.textContent = '行 ' + (w.line || '-') + ' ↗';
+
+      item.appendChild(badge);
+      item.appendChild(content);
+      item.appendChild(lineSpan);
+
+      item.onclick = function () {
+        jumpToSourceLine(w.line, true);
+      };
+
+      list.appendChild(item);
+    });
+  }
+
+  function acceptConsentAndExecute() {
+    if (viewerState.loading || !viewerState.htmlPayload) return;
+    writeStorage_(getConsentKey_(), 'true');
+    hideDialog_('consent-overlay');
+    executeInSandbox();
+    showToast('アーティファクトを開始しました');
+  }
+
+  function executeInSandbox() {
+    var iframe = document.getElementById('artifact-sandbox');
+    // null origin のゼロトラスト隔離サンドボックスへ注入
+    iframe.srcdoc = viewerState.htmlPayload || '';
+  }
+
+  // 2. フィルタボタンの生成 (a11y対応)
+  function renderFilterButtons() {
+    var bar = document.getElementById('categoryFilterBar');
+    if (!bar) return;
+    bar.innerHTML = '';
+
+    var label = document.createElement('span');
+    label.className = 'filter-label';
+    label.textContent = 'フィルタ:';
+    bar.appendChild(label);
+
+    var warnings = viewerState.warnings || [];
+    var counts = { ALL: warnings.length, EXTERNAL_TAG: 0, NETWORK: 0, POPUP: 0, STORAGE: 0, DYNAMIC_EVAL: 0 };
+    warnings.forEach(function (w) {
+      if (counts[w.category] !== undefined) counts[w.category]++;
+    });
+
+    var filterDefs = [
+      { id: 'ALL', label: 'すべて', count: counts.ALL, cls: 'cat-badge-all' },
+      { id: 'EXTERNAL_TAG', label: '外部読込', count: counts.EXTERNAL_TAG, cls: 'cat-badge-external' },
+      { id: 'NETWORK', label: '通信', count: counts.NETWORK, cls: 'cat-badge-network' },
+      { id: 'POPUP', label: 'POPUP', count: counts.POPUP, cls: 'cat-badge-popup' },
+      { id: 'STORAGE', label: '保存', count: counts.STORAGE, cls: 'cat-badge-storage' },
+      { id: 'DYNAMIC_EVAL', label: '動的評価', count: counts.DYNAMIC_EVAL, cls: 'cat-badge-eval' }
+    ];
+
+    filterDefs.forEach(function (f) {
+      var btn = document.createElement('span');
+      btn.className = 'cat-badge cat-filter-btn ' + f.cls + (inspectorState.currentFilter === f.id ? ' active' : '');
+      btn.textContent = f.label + ' (' + f.count + ')';
+      btn.setAttribute('role', 'button');
+      btn.setAttribute('tabindex', '0');
+      btn.setAttribute('aria-pressed', inspectorState.currentFilter === f.id ? 'true' : 'false');
+
+      var triggerFilter = function () {
+        applyCategoryFilter(f.id);
+      };
+      btn.onclick = triggerFilter;
+      btn.onkeydown = function (e) {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          triggerFilter();
+        }
+      };
+      bar.appendChild(btn);
+    });
+  }
+
+  // 3. カテゴリフィルタの適用 (文脈フラグを保持)
+  function applyCategoryFilter(catId) {
+    inspectorState.currentFilter = catId;
+    renderFilterButtons();
+
+    var warnings = viewerState.warnings || [];
+    if (catId === 'ALL') {
+      inspectorState.filteredWarnings = warnings.slice();
+    } else {
+      inspectorState.filteredWarnings = warnings.filter(function (w) { return w.category === catId; });
+    }
+
+    var allRows = document.querySelectorAll('.source-line.warning-row');
+    allRows.forEach(function (row) {
+      var rowCat = row.getAttribute('data-category');
+      if (inspectorState.currentFilter === 'ALL' || rowCat === inspectorState.currentFilter) {
+        row.classList.remove('filtered-out');
+      } else {
+        row.classList.add('filtered-out');
+      }
+    });
+
+    if (inspectorState.filteredWarnings.length > 0) {
+      jumpToSourceLine(inspectorState.filteredWarnings[0].line);
+    } else {
+      var prev = document.querySelectorAll('.source-line.active-focus-row');
+      prev.forEach(function (el) { el.classList.remove('active-focus-row'); });
+      updateCounterBadge();
+    }
+  }
+
+  // 4. ソースコードの安全レンダリング (Stored XSS完全防止: textContent代入)
+  function renderSourceCode() {
+    var wrapper = document.getElementById('source-code-area');
+    if (!wrapper) return;
+    wrapper.innerHTML = '';
+
+    var rawHtml = viewerState.htmlPayload || '';
+    var lines = rawHtml.split(/\r?\n/);
+    var fragment = document.createDocumentFragment();
+
+    var warnMap = {};
+    (viewerState.warnings || []).forEach(function (w) {
+      warnMap[w.line] = w;
+    });
+
+    // 一度に生成する行を制限し、長大なHTMLで画面を停止させない。
+    const start = Math.max(0, Math.min(lines.length - 2000, (viewerState.activeWarningLine || 1) - 1000));
+    const end = Math.min(lines.length, start + 2000);
+    inspectorState.sourceStart = start + 1;
+    inspectorState.sourceEnd = end;
+    if (lines.length > 2000) {
+      const note = document.createElement('p');
+      note.className = 'source-range-note';
+      note.textContent = (start + 1) + '〜' + end + '行を表示（全' + lines.length + '行）。警告への移動で表示範囲が変わります。全文は「HTMLを保存」で確認できます。';
+      fragment.appendChild(note);
+    }
+    for (var i = start; i < end; i++) {
+      var lineNum = i + 1;
+      var lineText = lines[i];
+      var isWarn = !!warnMap[lineNum];
+      var w = warnMap[lineNum];
+
+      var row = document.createElement('div');
+      row.className = 'source-line' + (isWarn ? ' warning-row' : '');
+      row.id = 'source-line-' + lineNum;
+      if (isWarn) {
+        row.setAttribute('data-category', w.category);
+      }
+
+      var numCol = document.createElement('div');
+      numCol.className = 'source-line-num';
+      numCol.textContent = lineNum;
+
+      var codeCol = document.createElement('div');
+      codeCol.className = 'source-line-code';
+      codeCol.textContent = lineText;
+
+      if (isWarn) {
+        var meta = resolveWarningMetadata(w);
+        var badge = document.createElement('span');
+        var bClass = 'source-line-badge ';
+        if (w.category === 'EXTERNAL_TAG') bClass += 'badge-external-tag';
+        else if (w.category === 'NETWORK') bClass += 'badge-network-tag';
+        else if (w.category === 'POPUP') bClass += 'badge-popup-tag';
+        else if (w.category === 'STORAGE') bClass += 'badge-storage-tag';
+        else if (w.category === 'DYNAMIC_EVAL') bClass += 'badge-eval-tag';
+        badge.className = bClass;
+        badge.textContent = '[' + w.category + ': ' + (w.attribute || 'detect') + ']';
+        badge.title = meta.title + ' - ' + meta.explanation;
+        codeCol.appendChild(badge);
+      }
+
+      row.appendChild(numCol);
+      row.appendChild(codeCol);
+      fragment.appendChild(row);
+    }
+
+    wrapper.appendChild(fragment);
+    updateActiveRowHighlight();
+    updateCounterBadge();
+  }
+
+  // 5. 指定行へジャンプ ＆ 永続アクティブハイライト
+  function jumpToSourceLine(lineNum, fromConsent) {
+    viewerState.activeWarningLine = lineNum;
+    if (typeof fromConsent === 'boolean') {
+      inspectorState.isFromConsentContext = fromConsent;
+    }
+    // 現在の文脈フラグを明示的に渡してインスペクターを開く
+    openSourceModal(inspectorState.isFromConsentContext);
+    if (lineNum < inspectorState.sourceStart || lineNum > inspectorState.sourceEnd) renderSourceCode();
+
+    setTimeout(function () {
+      updateActiveRowHighlight();
+      var targetRow = document.getElementById('source-line-' + lineNum);
+      if (targetRow) {
+        targetRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+      updateCounterBadge();
+    }, 80);
+  }
+
+  // 永続アクティブ行ハイライトの更新
+  function updateActiveRowHighlight() {
+    var prevActive = document.querySelectorAll('.source-line.active-focus-row');
+    prevActive.forEach(function (el) { el.classList.remove('active-focus-row'); });
+
+    var targetRow = document.getElementById('source-line-' + viewerState.activeWarningLine);
+    if (targetRow) {
+      targetRow.classList.add('active-focus-row');
+    }
+  }
+
+  function updateCounterBadge() {
+    var badge = document.getElementById('warningPositionBadge');
+    if (!badge) return;
+
+    var filtered = inspectorState.filteredWarnings || [];
+    if (filtered.length === 0) {
+      badge.textContent = '該当なし (0件)';
+      return;
+    }
+
+    var idx = filtered.findIndex(function (w) { return w.line === viewerState.activeWarningLine; });
+    var pos = idx !== -1 ? idx + 1 : 1;
+    var catLabel = inspectorState.currentFilter === 'ALL' ? '' : ' (' + inspectorState.currentFilter + ')';
+    badge.textContent = pos + ' / ' + filtered.length + ' 件目' + catLabel;
+  }
+
+  function navigateWarning(delta) {
+    var filtered = inspectorState.filteredWarnings || [];
+    if (filtered.length === 0) return;
+
+    var idx = filtered.findIndex(function (w) { return w.line === viewerState.activeWarningLine; });
+    if (idx === -1) idx = 0;
+    var nextIdx = (idx + delta + filtered.length) % filtered.length;
+    // 第2引数を渡さず既存の文脈フラグを維持
+    jumpToSourceLine(filtered[nextIdx].line);
+  }
+
+  // ソースコードインスペクター モーダル制御
+  function openSourceModal(fromConsent) {
+    // 明示的に true が渡された場合のみ true とし、それ以外（ヘッダーからの呼出等）は false に安全にリセット
+    inspectorState.isFromConsentContext = (fromConsent === true);
+
+    var backBtn = document.getElementById('btnBackToConsent');
+    if (backBtn) {
+      backBtn.style.display = inspectorState.isFromConsentContext ? 'inline-flex' : 'none';
+    }
+    showDialog_('sourceModal');
+
+    // ソースコード未描画なら描画
+    var area = document.getElementById('source-code-area');
+    if (area && area.children.length === 0) {
+      renderSourceCode();
+    }
+  }
+
+  function closeSourceModal() {
+    hideDialog_('sourceModal');
+  }
+
+  function backToConsentModal() {
+    closeSourceModal();
+  }
+
+  // セキュリティ診断モーダル (Stored XSS防止: textContent/DOM生成の徹底)
+  function showSecurityModal() {
+    var modal = document.getElementById('securityModal');
+    var content = document.getElementById('security-details-content');
+    content.innerHTML = '';
+
+    if (!viewerState.warnings || viewerState.warnings.length === 0) {
+      var safeDiv = document.createElement('div');
+      safeDiv.style.cssText = 'padding: 16px; background: var(--badge-safe-bg); color: var(--badge-safe-text); border-radius: 8px; font-size: 13px;';
+      var safeTitle = document.createElement('strong');
+      safeTitle.textContent = '【静的検査：検出なし】';
+      safeDiv.appendChild(safeTitle);
+      safeDiv.appendChild(document.createElement('br'));
+      safeDiv.appendChild(document.createTextNode('この検査の対象パターンは検出されませんでした。検出漏れがあり、安全性や通信しないことを保証するものではありません。'));
+      content.appendChild(safeDiv);
+    } else {
+      var descP = document.createElement('p');
+      descP.style.cssText = 'font-size: 13px; color: var(--text-muted); margin-bottom: 12px; line-height: 1.6;';
+      descP.textContent = 'このアーティファクトで検出された項目 (' + viewerState.warnings.length + '件) です。各項目をクリックするとソースコードの該当行を確認できます。';
+      content.appendChild(descP);
+
+      var box = document.createElement('div');
+      box.className = 'warnings-box';
+      viewerState.warnings.forEach(function (w) {
+        var meta = resolveWarningMetadata(w);
+
+        var item = document.createElement('div');
+        item.className = 'warning-item-interactive';
+        item.title = 'クリックするとソースコードの ' + w.line + ' 行目を表示します';
+
+        var badge = document.createElement('span');
+        var badgeClass = 'cat-badge ';
+        if (w.category === 'EXTERNAL_TAG') badgeClass += 'cat-badge-external';
+        else if (w.category === 'NETWORK') badgeClass += 'cat-badge-network';
+        else if (w.category === 'POPUP') badgeClass += 'cat-badge-popup';
+        else if (w.category === 'STORAGE') badgeClass += 'cat-badge-storage';
+        else if (w.category === 'DYNAMIC_EVAL') badgeClass += 'cat-badge-eval';
+        else badgeClass += 'cat-badge-all';
+        badge.className = badgeClass;
+        badge.textContent = w.category;
+
+        var wContent = document.createElement('div');
+        wContent.className = 'warning-content-col';
+
+        var mainMsg = document.createElement('div');
+        mainMsg.className = 'warning-main-msg';
+        mainMsg.textContent = meta.title;
+
+        if (w.cdnMeta) {
+          var safeBadge = document.createElement('span');
+          safeBadge.className = 'safe-resource-badge';
+          safeBadge.appendChild(createSvgIcon('0 0 24 24', null, '20 6 9 17 4 12'));
+          safeBadge.appendChild(document.createTextNode(' ' + (w.cdnMeta.label || '公式配信')));
+          mainMsg.appendChild(safeBadge);
+        }
+
+        wContent.appendChild(mainMsg);
+
+        if (w.url) {
+          var urlDiv = document.createElement('div');
+          urlDiv.style.marginTop = '2px';
+          var urlCode = document.createElement('code');
+          urlCode.className = 'warning-url-code';
+          urlCode.textContent = w.url;
+          urlDiv.appendChild(urlCode);
+          wContent.appendChild(urlDiv);
+        }
+
+        var descDiv = document.createElement('div');
+        descDiv.className = 'warning-detail-desc';
+        var infoIcon = createSvgIcon('0 0 24 24', null, null);
+        var circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        circle.setAttribute('cx', '12'); circle.setAttribute('cy', '12'); circle.setAttribute('r', '10');
+        infoIcon.appendChild(circle);
+        infoIcon.style.width = '12px';
+        infoIcon.style.height = '12px';
+        descDiv.appendChild(infoIcon);
+        descDiv.appendChild(document.createTextNode(' ' + meta.explanation));
+        wContent.appendChild(descDiv);
+
+        var lineSpan = document.createElement('span');
+        lineSpan.className = 'warning-line-link';
+        lineSpan.textContent = '行 ' + (w.line || '-') + ' ↗';
+
+        item.appendChild(badge);
+        item.appendChild(wContent);
+        item.appendChild(lineSpan);
+
+        item.onclick = function () {
+          closeSecurityModal();
+          jumpToSourceLine(w.line, false);
+        };
+
+        box.appendChild(item);
+      });
+      content.appendChild(box);
+
+      // ゼロトラスト安心バナー
+      var banner = document.createElement('div');
+      banner.className = 'security-guarantee-banner';
+      banner.style.marginTop = '14px';
+      var shieldIcon = createSvgIcon('0 0 24 24', 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z', null);
+      shieldIcon.style.cssText = 'color: #15803d; width: 18px; height: 18px; margin-top: 2px; flex-shrink: 0;';
+      banner.appendChild(shieldIcon);
+      var bannerText = document.createElement('div');
+      var bannerStrong1 = document.createElement('strong');
+      bannerStrong1.textContent = '実行環境の制限と注意点';
+      bannerText.appendChild(bannerStrong1);
+      bannerText.appendChild(document.createElement('br'));
+      bannerText.appendChild(document.createTextNode('このアーティファクトは親画面から分離したiframeで実行されます。ただし、'));
+      var bannerStrong2 = document.createElement('strong');
+      bannerStrong2.textContent = '入力・選択した情報の外部送信、ダウンロード、偽のログイン画面、過大な処理を防ぐものではありません';
+      bannerText.appendChild(bannerStrong2);
+      bannerText.appendChild(document.createTextNode('。機密情報を扱う前に作成者と処理内容を確認してください。'));
+      banner.appendChild(bannerText);
+      content.appendChild(banner);
+    }
+    showDialog_('securityModal');
+  }
+
+  function closeSecurityModal() {
+    hideDialog_('securityModal');
+  }
+
+  // 新バージョンアップロード
+  function setupUpdateDropzone() {
+    var dropzone = document.getElementById('update-dropzone');
+    if (!dropzone) return;
+
+    ['dragenter', 'dragover'].forEach(function (eventName) {
+      dropzone.addEventListener(eventName, function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        dropzone.classList.add('dragover');
+      }, false);
+    });
+
+    ['dragleave', 'drop'].forEach(function (eventName) {
+      dropzone.addEventListener(eventName, function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        dropzone.classList.remove('dragover');
+      }, false);
+    });
+
+    dropzone.addEventListener('drop', function (e) {
+      var dt = e.dataTransfer;
+      var files = dt ? dt.files : null;
+      handleUpdateFileInputChange(files);
+    }, false);
+
+    // モーダル外・余白への誤ドロップによるページ離脱防止
+    var modal = document.getElementById('uploadModal');
+    if (modal) {
+      ['dragover', 'drop'].forEach(function (eventName) {
+        modal.addEventListener(eventName, function (e) {
+          if (!e.target.closest('#update-dropzone')) {
+            e.preventDefault();
+          }
+        }, false);
+      });
+    }
+  }
+
+  function openNewVersionModal() {
+    if (updateState.busy || viewerState.loading || !viewerState.isEditor) return;
+    resetUpdateModal();
+    showDialog_('uploadModal');
+  }
+
+  function closeNewVersionModal() {
+    if (updateState.busy) return;
+    ++updateState.fileReadId;
+    hideDialog_('uploadModal');
+  }
+
+  function resetUpdateModal() {
+    ++updateState.fileReadId;
+    updateState.file = null;
+    updateState.htmlContent = '';
+    var fileInput = document.getElementById('update-file-input');
+    if (fileInput) fileInput.value = '';
+    var label = document.getElementById('update-file-label');
+    if (label) label.textContent = 'HTMLファイルを選択またはドロップ';
+    var sub = document.getElementById('update-file-sub');
+    if (sub) sub.textContent = 'クリックしてファイルを選択 (.html / .htm)';
+    var scanCard = document.getElementById('updateScanCard');
+    if (scanCard) scanCard.style.display = 'none';
+    var btn = document.getElementById('btn-submit-version');
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = '新しいバージョンを公開する';
+    }
+  }
+
+  function handleUpdateFileInputChange(files) {
+    if (files && files.length > 0) {
+      processUpdateFile(files[0]);
+    }
+  }
+
+  function resetUpdateFilePreview_() {
+    document.getElementById('update-file-label').textContent = 'HTMLファイルを選択またはドロップ';
+    document.getElementById('update-file-sub').textContent = 'クリックしてファイルを選択 (.html / .htm)';
+    var scanCard = document.getElementById('updateScanCard');
+    if (scanCard) scanCard.style.display = 'none';
+  }
+
+  function processUpdateFile(file) {
+    if (updateState.busy) return;
+    const readId = ++updateState.fileReadId;
+    updateState.htmlContent = '';
+    updateState.file = null;
+    document.getElementById('btn-submit-version').disabled = true;
+    if (!file.name.match(/\.(html|htm)$/i)) {
+      showToast('単一のHTMLファイル (.html / .htm) を選択してください');
+      resetUpdateFilePreview_();
+      return;
+    }
+
+    var maxBytes = (Number(viewerState.maxHtmlSizeKb) || 1024) * 1024;
+    if (file.size > maxBytes) {
+      showToast('ファイルサイズ (' + Math.round(file.size / 1024) + ' KB) が上限を超えています');
+      resetUpdateFilePreview_();
+      return;
+    }
+
+    updateState.file = file;
+    document.getElementById('update-file-label').textContent = file.name;
+    document.getElementById('update-file-sub').textContent = Math.round(file.size / 1024) + ' KB · 準備完了';
+
+    var reader = new FileReader();
+    reader.onload = function (e) {
+      if (readId !== updateState.fileReadId) return;
+      updateState.htmlContent = e.target.result;
+      previewUpdateScanResult(updateState.htmlContent, file.size);
+      document.getElementById('btn-submit-version').disabled = false;
+    };
+    reader.onerror = reader.onabort = function () {
+      if (readId !== updateState.fileReadId) return;
+      updateState.htmlContent = '';
+      document.getElementById('btn-submit-version').disabled = true;
+      showToast('ファイルの読み込みに失敗しました');
+    };
+    reader.readAsText(file);
+  }
+
+  function previewUpdateScanResult(html, sizeBytes) {
+    var card = document.getElementById('updateScanCard');
+    if (!card) return;
+    card.style.display = 'block';
+
+    var sizeKb = (sizeBytes / 1024).toFixed(1);
+    var cacheHint = sizeBytes <= 90 * 1024 ? '高速キャッシュ適用' : 'Drive直読み';
+    document.getElementById('update-scan-filesize').textContent = sizeKb + ' KB (' + cacheHint + ')';
+
+    var hasNetwork = html.match(/\b(fetch|XMLHttpRequest|WebSocket|sendBeacon|EventSource)\b/i);
+    var networkEl = document.getElementById('update-scan-network-status');
+    if (networkEl) {
+      if (hasNetwork) {
+        networkEl.textContent = '外部通信API検出あり';
+        networkEl.style.color = 'var(--badge-warn-text)';
+      } else {
+        networkEl.textContent = '検出なし（安全性の保証ではありません）';
+        networkEl.style.color = 'var(--badge-safe-text)';
+      }
+    }
+
+    var authEl = document.getElementById('update-scan-auth-status');
+    if (authEl) {
+      authEl.textContent = '親画面から分離して実行';
+    }
+
+    var titleEl = document.getElementById('update-scan-status-title');
+    if (titleEl) {
+      titleEl.textContent = '簡易検査プレビュー';
+    }
+  }
+
+  function submitNewVersion() {
+    if (updateState.busy) return;
+    if (!updateState.htmlContent) {
+      showToast('HTMLファイルを選択してください');
+      return;
+    }
+
+    var btn = document.getElementById('btn-submit-version');
+    btn.disabled = true;
+    btn.textContent = '公開処理中...';
+    updateState.busy = true;
+
+    google.script.run
+      .withSuccessHandler(function (res) {
+        updateState.busy = false;
+        btn.disabled = false;
+        btn.textContent = '新しいバージョンを公開する';
+        if (!res.ok) {
+          showToast('更新失敗: ' + res.error);
+          return;
+        }
+        closeNewVersionModal();
+        showToast('新しいバージョンが公開されました');
+        loadArtifactDetails();
+      })
+      .withFailureHandler(function (err) {
+        updateState.busy = false;
+        btn.disabled = false;
+        btn.textContent = '新しいバージョンを公開する';
+        showToast('通信エラー: ' + err.message);
+      })
+      .apiUploadVersion(viewerState.artifactId, updateState.htmlContent);
+  }
+
+  // 設定モーダル
+  // ACLの追加・権限変更・削除は都度サーバーへ送らず、モーダル内でのみ保持する
+  // 下書き（settingsAclDraft.staged）に反映し、「設定を保存」クリック時にまとめて反映する
+  var settingsAclDraft = { original: [], staged: [], requestId: 0, loaded: false, saving: false, artifactId: '', custodian: '' };
+
+  function openSettingsModal() {
+    if (settingsAclDraft.saving) return;
+    const artifactId = viewerState.artifactId;
+    const art = (viewerState.artifactData && viewerState.artifactData.artifact) || {};
+    if (!viewerState.isEditor) return;
+    const requestId = ++settingsAclDraft.requestId;
+    settingsAclDraft.artifactId = artifactId;
+    settingsAclDraft.custodian = String(art.custodian || '').toLowerCase();
+    settingsAclDraft.loaded = false;
+    settingsAclDraft.original = [];
+    settingsAclDraft.staged = [];
+    document.getElementById('settings-title').value = art.title || '';
+    document.getElementById('settings-desc').value = art.description || '';
+    document.getElementById('settings-visibility').value = art.visibility || 'all';
+    document.getElementById('settingsModal-status').textContent = 'メンバーを読み込んでいます...';
+    toggleSettingsAclSection();
+    renderAclRows([]);
+    showDialog_('settingsModal');
+    setDialogDisabled_('settingsModal', true);
+    google.script.run.withSuccessHandler(function (res) {
+      if (requestId !== settingsAclDraft.requestId) return;
+      if (!res || !res.ok) { aclLoadFailed_((res && res.error) || '応答を取得できませんでした'); return; }
+      const acls = (res.data.acls || []).filter(a => String(a.email).toLowerCase() !== settingsAclDraft.custodian).map(a => ({email: a.email, role: a.role}));
+      settingsAclDraft.original = acls;
+      settingsAclDraft.staged = acls.map(a => ({email: a.email, role: a.role}));
+      settingsAclDraft.loaded = true;
+      renderAclRows(settingsAclDraft.staged);
+      setDialogDisabled_('settingsModal', false);
+      document.getElementById('settingsModal-status').textContent = '管理責任者: ' + (settingsAclDraft.custodian || '未設定') + '（常に管理権限を保持します）';
+    }).withFailureHandler(function (error) {
+      if (requestId !== settingsAclDraft.requestId) return;
+      aclLoadFailed_(error.message);
+    }).apiGetAcl(artifactId);
+  }
+
+  function aclLoadFailed_(message) {
+    setDialogDisabled_('settingsModal', false);
+    document.getElementById('btn-save-settings').disabled = true;
+    document.getElementById('settingsModal-status').textContent = 'メンバー取得に失敗しました: ' + message + '。閉じて再度開いてください。';
+  }
+
+  function toggleSettingsAclSection() {
+    var visibility = document.getElementById('settings-visibility').value;
+    document.getElementById('settings-acl-section').style.display = (visibility === 'list') ? 'block' : 'none';
+  }
+
+  // 限定公開メンバー管理（下書き settingsAclDraft.staged をその場で描画するのみ。サーバー通信はしない）
+  // DOM APIで構築する（メールアドレスをHTML/JS属性文字列に埋め込むと、
+  // escapeHtmlしていても onclick 属性内のJS文字列リテラルとしては保護されず
+  // 保存型XSSになりうるため、テキストノード代入とaddEventListenerのみを使う）
+  function renderAclRows(acls) {
+    var container = document.getElementById('settings-acl-rows');
+    container.textContent = '';
+    if (!acls || acls.length === 0) {
+      var empty = document.createElement('div');
+      empty.className = 'acl-empty';
+      empty.textContent = 'メンバーが登録されていません';
+      container.appendChild(empty);
+      return;
+    }
+    acls.forEach(function (a) {
+      var email = a.email || '';
+      var row = document.createElement('div');
+      row.className = 'acl-member-row';
+
+      var span = document.createElement('span');
+      span.className = 'acl-member-email';
+      span.title = email;
+      span.textContent = email;
+
+      var select = document.createElement('select');
+      select.className = 'acl-role-select';
+      [['viewer', '閲覧のみ'], ['editor', '編集可']].forEach(function (opt) {
+        var option = document.createElement('option');
+        option.value = opt[0];
+        option.textContent = opt[1];
+        if (a.role === opt[0]) option.selected = true;
+        select.appendChild(option);
+      });
+      select.addEventListener('change', function () {
+        stageAclRoleChange(email, select.value);
+      });
+
+      var btn = document.createElement('button');
+      btn.className = 'acl-remove-btn';
+      btn.setAttribute('aria-label', '削除');
+      btn.innerHTML = '<svg class="icon" style="width: 14px; height: 14px;" viewBox="0 0 24 24"><line x1="18" x2="6" y1="6" y2="18"/><line x1="6" x2="18" y1="6" y2="18"/></svg>';
+      btn.addEventListener('click', function () {
+        stageAclRemoval(email);
+      });
+
+      row.appendChild(span);
+      row.appendChild(select);
+      row.appendChild(btn);
+      container.appendChild(row);
+    });
+  }
+
+  function isValidAclEmail_(email) {
+    return /^[^\s'"<>@]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(email);
+  }
+
+  function addAclMember() {
+    if (!settingsAclDraft.loaded || settingsAclDraft.saving) return;
+    var emailInput = document.getElementById('settings-acl-email-input');
+    var email = emailInput.value.trim().toLowerCase();
+    var role = document.getElementById('settings-acl-role-select').value;
+
+    if (!isValidAclEmail_(email)) {
+      showToast('有効なメールアドレスを入力してください');
+      return;
+    }
+
+    if (email === settingsAclDraft.custodian) { showToast('管理責任者は常に管理権限を保持します'); return; }
+    var existing = settingsAclDraft.staged.filter(function (m) { return m.email.toLowerCase() === email; })[0];
+    if (existing) {
+      existing.role = role;
+    } else {
+      settingsAclDraft.staged.push({ email: email, role: role });
+    }
+    emailInput.value = '';
+    renderAclRows(settingsAclDraft.staged);
+  }
+
+  function stageAclRoleChange(email, role) {
+    if (!settingsAclDraft.loaded || settingsAclDraft.saving) return;
+    var member = settingsAclDraft.staged.filter(function (m) { return m.email === email; })[0];
+    if (member) member.role = role;
+  }
+
+  function stageAclRemoval(email) {
+    if (!settingsAclDraft.loaded || settingsAclDraft.saving) return;
+    settingsAclDraft.staged = settingsAclDraft.staged.filter(function (m) { return m.email !== email; });
+    renderAclRows(settingsAclDraft.staged);
+  }
+
+  function closeSettingsModal() {
+    if (settingsAclDraft.saving) return;
+    ++settingsAclDraft.requestId;
+    settingsAclDraft.loaded = false;
+    hideDialog_('settingsModal');
+  }
+
+  function saveSettings() {
+    if (!settingsAclDraft.loaded || settingsAclDraft.saving) return;
+    const title = document.getElementById('settings-title').value.trim();
+    const description = document.getElementById('settings-desc').value.trim();
+    const visibility = document.getElementById('settings-visibility').value;
+    if (!title) { showToast('タイトルを入力してください'); return; }
+    const artifactId = settingsAclDraft.artifactId;
+    const acls = settingsAclDraft.staged.map(a => ({email: a.email, role: a.role}));
+    settingsAclDraft.saving = true;
+    setDialogDisabled_('settingsModal', true);
+    document.getElementById('btn-save-settings').textContent = '保存中...';
+    function finish(error) {
+      settingsAclDraft.saving = false;
+      setDialogDisabled_('settingsModal', false);
+      document.getElementById('btn-save-settings').textContent = '設定を保存';
+      if (error) {
+        document.getElementById('settingsModal-status').textContent = '保存失敗: ' + error + '。入力内容を保持しています。';
+        return;
+      }
+      closeSettingsModal();
+      showToast('設定を保存しました');
+      loadArtifactDetails();
+    }
+    google.script.run.withSuccessHandler(function (res) {
+      finish(res && res.ok ? '' : (res && res.error) || '応答を取得できませんでした');
+    }).withFailureHandler(error => finish(error.message))
+      .apiSaveArtifactSettings(artifactId, title, description, visibility, acls);
+  }
+
+  function handleDeleteArtifact() {
+    if (settingsAclDraft.saving || !settingsAclDraft.loaded) return;
+    if (!confirm('このアーティファクトを無効化しますか？ 新しいアクセスはできなくなります。')) return;
+    settingsAclDraft.saving = true;
+    setDialogDisabled_('settingsModal', true);
+    function finish(error) {
+      settingsAclDraft.saving = false;
+      setDialogDisabled_('settingsModal', false);
+      if (error) { showToast('無効化失敗: ' + error); return; }
+      closeSettingsModal();
+      document.getElementById('artifact-sandbox').srcdoc = '';
+      viewerState.htmlPayload = '';
+      showDialog_('deleteDoneModal');
+    }
+    google.script.run.withSuccessHandler(res => finish(res && res.ok ? '' : (res && res.error) || '応答を取得できませんでした'))
+      .withFailureHandler(error => finish(error.message)).apiDeleteArtifact(viewerState.artifactId);
+  }
+
+  // 共有リンクコピー（社内メンバーへの共有時は本番/execリンクを保証）
+  function copyShareLink() {
+    var baseUrl = '';
+    if (typeof SERVER_APP_URL !== 'undefined' && SERVER_APP_URL) {
+      baseUrl = String(SERVER_APP_URL).trim().split('?')[0].split('#')[0];
+    } else {
+      baseUrl = getAppBaseUrl();
+    }
+    baseUrl = baseUrl.replace(/\/dev(\/|$)/i, '/exec$1');
+    var sep = baseUrl.indexOf('?') === -1 ? '?' : '&';
+    var url = baseUrl + sep + 'a=' + encodeURIComponent(viewerState.artifactId);
+
+    copyText_(url);
+  }
+
+  function showError(msg) {
+    document.getElementById('loading-state').style.display = 'none';
+    document.getElementById('error-message').textContent = msg;
+    document.getElementById('error-state').style.display = 'flex';
+  }
+
+  function downloadSource_() {
+    const blob = new Blob([viewerState.htmlPayload || ''], {type: 'text/html;charset=utf-8'});
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'artifact-' + viewerState.artifactId + '.html';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  function showToast(msg) {
+    var toast = document.getElementById('toast');
+    document.getElementById('toastMsg').textContent = msg;
+    toast.classList.add('show');
+    setTimeout(function () {
+      toast.classList.remove('show');
+    }, 2500);
+  }
+
+  function escapeHtml(str) {
+    if (!str) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+</script>

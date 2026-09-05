@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="ja" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <base target="_top">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GAS Artifact Hub - 社内アーティファクトポータル</title>
+  <script>
+    var APP_URL = '<?!= ScriptApp.getService().getUrl() ?>';
+    var INITIAL_BOOTSTRAP = <?!= initialBootstrapJson || 'null' ?>;
+    var INITIAL_ARTIFACTS = <?!= initialArtifactsJson || 'null' ?>;
+  </script>
+  <?!= include_('UploadCss'); ?>
+</head>
+<body>
+
+  <!-- 左サイドバー -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="brand-mark">H</div>
+      <div class="brand-text">Artifact Hub</div>
+    </div>
+
+    <div class="nav-body">
+      <div class="nav-label">ナビゲーション</div>
+      <button type="button" class="nav-item active" onclick="setCategoryFilter('all', this)">
+        <svg class="icon" viewBox="0 0 24 24"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></svg>
+        <span>すべてのアーティファクト</span>
+        <span class="nav-badge" id="badgeAllCount">0</span>
+      </button>
+      <button type="button" class="nav-item" onclick="setCategoryFilter('fav', this)">
+        <svg class="icon" viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+        <span>お気に入り</span>
+        <span class="nav-badge" id="badgeFavCount">0</span>
+      </button>
+      <button type="button" class="nav-item" onclick="setCategoryFilter('my', this)">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        <span>自分が作成</span>
+        <span class="nav-badge" id="badgeMyCount">0</span>
+      </button>
+
+      <div class="nav-label">カテゴリー</div>
+      <button type="button" class="nav-item" onclick="setCategoryFilter('data', this)">
+        <svg class="icon" viewBox="0 0 24 24"><line x1="18" x2="18" y1="20" y2="10"/><line x1="12" x2="12" y1="20" y2="4"/><line x1="6" x2="6" y1="20" y2="14"/></svg>
+        <span>データ・分析</span>
+        <span class="nav-badge" id="badgeDataCount">0</span>
+      </button>
+      <button type="button" class="nav-item" onclick="setCategoryFilter('text', this)">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" x2="8" y1="13" y2="13"/><line x1="16" x2="8" y1="17" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+        <span>文書・要約</span>
+        <span class="nav-badge" id="badgeTextCount">0</span>
+      </button>
+      <button type="button" class="nav-item" onclick="setCategoryFilter('dev', this)">
+        <svg class="icon" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+        <span>開発・ユーティリティ</span>
+        <span class="nav-badge" id="badgeDevCount">0</span>
+      </button>
+    </div>
+
+    <div class="sidebar-footer">
+      <div class="user-profile">
+        <div class="avatar" id="user-avatar">?</div>
+        <div class="user-name" id="user-email-display">読込中...</div>
+      </div>
+      <button class="theme-toggle-btn" onclick="toggleTheme()" aria-label="テーマ切り替え" title="ライト/ダーク切り替え">
+        <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
+      </button>
+    </div>
+  </aside>
+
+  <!-- メイン領域 -->
+  <main class="main">
+    <!-- 上部ヘッダー -->
+    <header class="topbar">
+      <div class="search-box">
+        <div class="search-icon-box">
+          <svg class="icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" x2="16.65" y1="21" y2="16.65"/></svg>
+        </div>
+        <input type="text" class="search-input" id="searchInput" placeholder="アーティファクト名、説明、作成者で検索..." aria-label="アーティファクトを検索" oninput="handleSearch()">
+        <span class="search-kbd">Ctrl / ⌘ K</span>
+      </div>
+
+      <div class="topbar-right">
+        <input type="file" id="file-input-hidden" accept=".html,.htm" style="display: none;" onchange="handleFileInputChange(this.files)">
+        <button class="btn-publish" onclick="openDrawer(false)">
+          <svg class="icon" viewBox="0 0 24 24"><line x1="12" x2="12" y1="5" y2="19"/><line x1="5" x2="19" y1="12" y2="12"/></svg>
+          <span>アーティファクトを共有</span>
+        </button>
+      </div>
+    </header>
+
+    <p class="risk-notice">投稿されたアーティファクトは外部通信やダウンロードを行う場合があります。静的検査は安全性を保証しません。</p>
+
+    <!-- コンテンツ表示エリア -->
+    <div class="content-area">
+      <!-- ツールバー（件数・表示切替・更新） -->
+      <div class="view-toolbar">
+        <div class="toolbar-left">
+          <h1 class="page-title" id="currentSectionTitle">すべてのアーティファクト</h1>
+          <span class="tool-count" id="filteredCount">0 件</span>
+        </div>
+
+        <div class="toolbar-right">
+          <button class="btn-action-ghost" id="btnRefreshList" onclick="loadArtifactList(true)" title="一覧を最新化" style="height: 32px;">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+            <span>更新</span>
+          </button>
+
+          <div class="segmented-control">
+            <button class="segment-btn active" id="btnGrid" aria-pressed="true" onclick="switchViewMode('grid')" aria-label="カードグリッド表示">
+              <svg class="icon" viewBox="0 0 24 24"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></svg>
+              <span>グリッド</span>
+            </button>
+            <button class="segment-btn" id="btnList" aria-pressed="false" onclick="switchViewMode('list')" aria-label="台帳テーブル表示">
+              <svg class="icon" viewBox="0 0 24 24"><line x1="8" x2="21" y1="6" y2="6"/><line x1="8" x2="21" y1="12" y2="12"/><line x1="8" x2="21" y1="18" y2="18"/><line x1="3" x2="3.01" y1="6" y2="6"/><line x1="3" x2="3.01" y1="12" y2="12"/><line x1="3" x2="3.01" y1="18" y2="18"/></svg>
+              <span>リスト</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- A. グリッド表示コンテナ -->
+      <div class="grid-view" id="gridView">
+        <!-- 初期ローディング用スケルトンカード（JS描画時に実データまたは空状態へ置換） -->
+        <div class="skeleton-card">
+          <div class="skeleton-head">
+            <div class="skeleton-title-group">
+              <div class="skeleton-title skeleton-shimmer"></div>
+              <div class="skeleton-id skeleton-shimmer"></div>
+            </div>
+            <div class="skeleton-badge skeleton-shimmer"></div>
+          </div>
+          <div class="skeleton-desc">
+            <div class="skeleton-line skeleton-shimmer"></div>
+            <div class="skeleton-line short skeleton-shimmer"></div>
+          </div>
+          <div class="skeleton-foot">
+            <div class="skeleton-author">
+              <div class="skeleton-avatar skeleton-shimmer"></div>
+              <div class="skeleton-author-name skeleton-shimmer"></div>
+            </div>
+            <div class="skeleton-btn skeleton-shimmer"></div>
+          </div>
+        </div>
+        <div class="skeleton-card">
+          <div class="skeleton-head">
+            <div class="skeleton-title-group">
+              <div class="skeleton-title skeleton-shimmer" style="width: 50%;"></div>
+              <div class="skeleton-id skeleton-shimmer"></div>
+            </div>
+            <div class="skeleton-badge skeleton-shimmer"></div>
+          </div>
+          <div class="skeleton-desc">
+            <div class="skeleton-line skeleton-shimmer"></div>
+            <div class="skeleton-line short skeleton-shimmer" style="width: 60%;"></div>
+          </div>
+          <div class="skeleton-foot">
+            <div class="skeleton-author">
+              <div class="skeleton-avatar skeleton-shimmer"></div>
+              <div class="skeleton-author-name skeleton-shimmer"></div>
+            </div>
+            <div class="skeleton-btn skeleton-shimmer"></div>
+          </div>
+        </div>
+        <div class="skeleton-card">
+          <div class="skeleton-head">
+            <div class="skeleton-title-group">
+              <div class="skeleton-title skeleton-shimmer" style="width: 75%;"></div>
+              <div class="skeleton-id skeleton-shimmer"></div>
+            </div>
+            <div class="skeleton-badge skeleton-shimmer"></div>
+          </div>
+          <div class="skeleton-desc">
+            <div class="skeleton-line skeleton-shimmer"></div>
+            <div class="skeleton-line short skeleton-shimmer" style="width: 75%;"></div>
+          </div>
+          <div class="skeleton-foot">
+            <div class="skeleton-author">
+              <div class="skeleton-avatar skeleton-shimmer"></div>
+              <div class="skeleton-author-name skeleton-shimmer"></div>
+            </div>
+            <div class="skeleton-btn skeleton-shimmer"></div>
+          </div>
+        </div>
+        <div class="skeleton-card">
+          <div class="skeleton-head">
+            <div class="skeleton-title-group">
+              <div class="skeleton-title skeleton-shimmer" style="width: 55%;"></div>
+              <div class="skeleton-id skeleton-shimmer"></div>
+            </div>
+            <div class="skeleton-badge skeleton-shimmer"></div>
+          </div>
+          <div class="skeleton-desc">
+            <div class="skeleton-line skeleton-shimmer"></div>
+            <div class="skeleton-line short skeleton-shimmer"></div>
+          </div>
+          <div class="skeleton-foot">
+            <div class="skeleton-author">
+              <div class="skeleton-avatar skeleton-shimmer"></div>
+              <div class="skeleton-author-name skeleton-shimmer"></div>
+            </div>
+            <div class="skeleton-btn skeleton-shimmer"></div>
+          </div>
+        </div>
+        <div class="skeleton-card">
+          <div class="skeleton-head">
+            <div class="skeleton-title-group">
+              <div class="skeleton-title skeleton-shimmer" style="width: 70%;"></div>
+              <div class="skeleton-id skeleton-shimmer"></div>
+            </div>
+            <div class="skeleton-badge skeleton-shimmer"></div>
+          </div>
+          <div class="skeleton-desc">
+            <div class="skeleton-line skeleton-shimmer"></div>
+            <div class="skeleton-line short skeleton-shimmer" style="width: 50%;"></div>
+          </div>
+          <div class="skeleton-foot">
+            <div class="skeleton-author">
+              <div class="skeleton-avatar skeleton-shimmer"></div>
+              <div class="skeleton-author-name skeleton-shimmer"></div>
+            </div>
+            <div class="skeleton-btn skeleton-shimmer"></div>
+          </div>
+        </div>
+        <div class="skeleton-card">
+          <div class="skeleton-head">
+            <div class="skeleton-title-group">
+              <div class="skeleton-title skeleton-shimmer" style="width: 60%;"></div>
+              <div class="skeleton-id skeleton-shimmer"></div>
+            </div>
+            <div class="skeleton-badge skeleton-shimmer"></div>
+          </div>
+          <div class="skeleton-desc">
+            <div class="skeleton-line skeleton-shimmer"></div>
+            <div class="skeleton-line short skeleton-shimmer"></div>
+          </div>
+          <div class="skeleton-foot">
+            <div class="skeleton-author">
+              <div class="skeleton-avatar skeleton-shimmer"></div>
+              <div class="skeleton-author-name skeleton-shimmer"></div>
+            </div>
+            <div class="skeleton-btn skeleton-shimmer"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- B. リスト表示（台帳テーブル）コンテナ -->
+      <div class="table-view-wrapper" id="listView">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>アーティファクト名</th>
+              <th>識別子 (ID)</th>
+              <th>公開範囲</th>
+              <th>作成者</th>
+              <th>最終更新</th>
+              <th style="text-align: right;">操作</th>
+            </tr>
+          </thead>
+          <tbody id="tableBody">
+            <!-- JSで動的に行を挿入 -->
+          </tbody>
+        </table>
+      </div>
+
+      <!-- 空状態・ローディング表示 -->
+      <div id="status-message" role="alert" style="display: none; padding: 48px; text-align: center; color: var(--text-sub);">
+        読込中...
+      </div>
+
+    </div>
+  </main>
+
+  <!-- 全画面ドラッグ＆ドロップ用オーバーレイ -->
+  <div class="drop-overlay" id="dropOverlay">
+    <div class="drop-box">
+      <svg class="icon-xl" style="margin-bottom: 12px; color: var(--accent);" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
+      <div style="font-size: 16px; font-weight: 700; margin-bottom: 4px; color: var(--text);">HTMLファイルをここにドロップ</div>
+      <div style="font-size: 13px; color: var(--text-sub);" id="drop-size-hint">単一HTMLを検査して組織内で共有します (最大 1024 KB)</div>
+    </div>
+  </div>
+
+  <!-- スライドオーバー Drawer（投稿・更新・ACL） -->
+  <div class="drawer-backdrop" id="drawerBackdrop" onclick="closeDrawer()"></div>
+  <aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-labelledby="drawerHeaderTitle" inert>
+    <div class="drawer-header">
+      <div class="drawer-title" id="drawerHeaderTitle">アーティファクトの共有</div>
+      <button class="btn-close" onclick="closeDrawer()" aria-label="閉じる">
+        <svg class="icon" viewBox="0 0 24 24"><line x1="18" x2="6" y1="6" y2="18"/><line x1="6" x2="18" y1="6" y2="18"/></svg>
+      </button>
+    </div>
+
+    <div class="drawer-body">
+      <!-- ファイル未選択時の簡易ドロップエリア -->
+      <button type="button" class="dropzone-mini" id="drawer-dropzone" onclick="document.getElementById('file-input-hidden').click()">
+        <svg class="icon" style="margin-bottom: 6px; color: var(--text-sub);" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
+        <div style="font-weight: 600; font-size: 13px; color: var(--text);" id="selected-file-label">HTMLファイルを選択またはドロップ</div>
+        <div style="font-size: 11px; color: var(--text-sub);" id="selected-file-sub">クリックしてファイルを選択</div>
+      </button>
+
+      <!-- 静的セキュリティスキャン結果カード -->
+      <div class="scan-card" id="scanSummaryCard" style="display: none;">
+        <div class="scan-header">
+          <svg class="icon" style="color: var(--badge-safe-text);" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          <span id="scan-status-title">静的セキュリティ診断中...</span>
+        </div>
+        <div class="scan-row">
+          <span>ファイルサイズ</span>
+          <span id="scan-filesize">-</span>
+        </div>
+        <div class="scan-row">
+          <span>ネットワーク通信</span>
+          <span id="scan-network-status">-</span>
+        </div>
+        <div class="scan-row">
+          <span>Cookie / 認証情報アクセス</span>
+          <span id="scan-auth-status">-</span>
+        </div>
+      </div>
+
+      <div id="artifact-details-fields">
+      <div class="form-field">
+        <label class="form-label" for="input-title">アーティファクト表示名 <span style="color: #ef4444;">*</span></label>
+        <input type="text" class="form-input" id="input-title" placeholder="例: 月次売上推移ダッシュボード" maxlength="100">
+      </div>
+
+      <div class="form-field">
+        <label class="form-label" for="input-desc">説明・用途 <span class="form-label-hint">(任意)</span></label>
+        <textarea class="form-textarea" id="input-desc" rows="3" placeholder="このアーティファクトの概要や使い方を入力してください" maxlength="200"></textarea>
+      </div>
+
+      </div>
+
+      <!-- 公開範囲（ACL設定） -->
+      <div class="form-field" id="visibility-field">
+        <label class="form-label">公開範囲 (アクセス権限)</label>
+        <div class="acl-grid">
+          <button type="button" aria-pressed="true" class="acl-item selected" id="acl-all" onclick="selectAcl('all')">
+            <div class="acl-name">全社公開</div>
+            <div class="acl-sub">ドメイン全員</div>
+          </button>
+          <button type="button" aria-pressed="false" class="acl-item" id="acl-list" onclick="selectAcl('list')">
+            <div class="acl-name">限定公開</div>
+            <div class="acl-sub">指定メンバー</div>
+          </button>
+          <button type="button" aria-pressed="false" class="acl-item" id="acl-private" onclick="selectAcl('private')">
+            <div class="acl-name">自分のみ</div>
+            <div class="acl-sub">下書き・検証</div>
+          </button>
+        </div>
+      </div>
+
+      <!-- 特定ユーザー指定欄 (初期非表示) -->
+      <div class="form-field" id="principals-group" style="display: none;">
+        <label class="form-label" for="input-principals">閲覧を許可するメールアドレス <span class="form-label-hint">(改行またはカンマ区切り)</span></label>
+        <textarea class="form-textarea" id="input-principals" rows="2" placeholder="colleague1@company.com&#10;colleague2@company.com"></textarea>
+      </div>
+
+
+    </div>
+
+    <div class="drawer-footer">
+      <button class="btn-action-ghost" style="height: 36px; padding: 0 16px;" onclick="closeDrawer()">キャンセル</button>
+      <button class="btn-publish" id="btn-submit-upload" onclick="handleSubmitUpload()" disabled>社内へ公開する</button>
+    </div>
+  </aside>
+
+  <!-- カード「編集」ドロップダウンメニュー（共有1個。JSでボタン位置に合わせて表示） -->
+  <div class="dropdown-menu" id="cardEditMenu">
+    <button type="button" class="dropdown-item" onclick="handleEditMenuAction('metadata')">アーティファクト名・説明・公開範囲を編集</button>
+    <button type="button" class="dropdown-item" onclick="handleEditMenuAction('version')">新しいバージョンを投稿</button>
+    <div class="dropdown-divider"></div>
+    <button type="button" class="dropdown-item dropdown-item-danger" onclick="handleEditMenuAction('delete')">削除</button>
+  </div>
+
+  <!-- アーティファクト設定編集モーダル（アーティファクト名・説明・用途・公開範囲） -->
+  <div class="modal-backdrop" id="editMetadataModal" role="dialog" aria-modal="true" aria-labelledby="editMetadataModalTitle">
+    <div class="modal-box">
+      <div class="modal-head">
+        <span id="editMetadataModalTitle">アーティファクトの設定を編集</span>
+        <button class="btn-close-sm" data-dialog-close onclick="closeEditModal()" aria-label="閉じる">
+          <svg class="icon" viewBox="0 0 24 24"><line x1="18" x2="6" y1="6" y2="18"/><line x1="6" x2="18" y1="6" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <p id="editMetadataModal-status" class="settings-status" role="status"></p>
+        <div class="form-field">
+          <label class="form-label" for="edit-title-input">アーティファクト表示名 <span style="color: #ef4444;">*</span></label>
+          <input type="text" class="form-input" id="edit-title-input" maxlength="100">
+        </div>
+        <div class="form-field">
+          <label class="form-label" for="edit-desc-input">説明・用途 <span class="form-label-hint">(任意)</span></label>
+          <textarea class="form-textarea" id="edit-desc-input" rows="2" maxlength="200"></textarea>
+        </div>
+        <div class="form-field" style="margin-bottom: 0;">
+          <label class="form-label" for="edit-visibility-select">公開範囲</label>
+          <select class="form-input" id="edit-visibility-select" onchange="toggleEditAclSection()">
+            <option value="all">全社公開 (組織全体)</option>
+            <option value="list">限定公開 (特定メンバー)</option>
+            <option value="private">自分のみ (非公開)</option>
+          </select>
+        </div>
+        <div class="form-field acl-section" id="edit-acl-section" style="display: none; margin-bottom: 0;">
+          <label class="form-label">閲覧・編集を許可するメンバー</label>
+          <div id="edit-acl-rows"><!-- JSで行を描画 --></div>
+          <div class="acl-add-row">
+            <input type="email" class="form-input" id="edit-acl-email-input" placeholder="email@company.com">
+            <select class="form-input acl-role-select" id="edit-acl-role-select">
+              <option value="viewer">閲覧のみ</option>
+              <option value="editor">編集可</option>
+            </select>
+            <button class="btn-action-ghost" onclick="addAclMember()">追加</button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn-action-ghost" data-dialog-close onclick="closeEditModal()">キャンセル</button>
+        <button class="btn-action-primary" id="btn-save-edit-metadata" onclick="saveEditMetadata()">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- トースト通知 -->
+  <div class="toast" id="toast" role="status" aria-live="polite">
+    <svg class="icon" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+    <span id="toastMsg">URLをコピーしました</span>
+  </div>
+
+  <?!= include_('UploadJs'); ?>
+</body>
+</html>

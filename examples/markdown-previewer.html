@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Markdown Previewer - GAS Artifact Hub Example</title>
+  <style>
+    :root {
+      --bg-color: #f8fafc;
+      --card-bg: #ffffff;
+      --text-main: #0f172a;
+      --text-muted: #64748b;
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --border-color: #e2e8f0;
+      --code-bg: #f1f5f9;
+      --code-color: #0f172a;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg-color: #0f172a;
+        --card-bg: #1e293b;
+        --text-main: #f8fafc;
+        --text-muted: #94a3b8;
+        --primary: #3b82f6;
+        --primary-hover: #60a5fa;
+        --border-color: #334155;
+        --code-bg: #111827;
+        --code-color: #e2e8f0;
+      }
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: var(--bg-color);
+      color: var(--text-main);
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+    header {
+      padding: 0.75rem 1.5rem;
+      background: var(--card-bg);
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+    }
+    h1 {
+      font-size: 1.125rem;
+      font-weight: 700;
+    }
+    .toolbar {
+      display: flex;
+      gap: 0.5rem;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      padding: 0.375rem 0.75rem;
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      background-color: var(--card-bg);
+      color: var(--text-main);
+      font-size: 0.8125rem;
+      font-weight: 600;
+      cursor: pointer;
+      user-select: none;
+      transition: background-color 0.15s ease;
+    }
+    .btn:hover {
+      background-color: var(--code-bg);
+    }
+    .btn-primary {
+      background-color: var(--primary);
+      color: #ffffff;
+      border-color: var(--primary);
+    }
+    .btn-primary:hover {
+      background-color: var(--primary-hover);
+    }
+    .workspace {
+      display: flex;
+      flex: 1;
+      height: calc(100vh - 54px);
+      overflow: hidden;
+    }
+    .pane {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .pane-header {
+      padding: 0.375rem 1rem;
+      background: var(--bg-color);
+      border-bottom: 1px solid var(--border-color);
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .editor-pane {
+      border-right: 1px solid var(--border-color);
+    }
+    textarea {
+      width: 100%;
+      height: 100%;
+      padding: 1rem;
+      border: none;
+      resize: none;
+      outline: none;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.875rem;
+      line-height: 1.6;
+      background: var(--card-bg);
+      color: var(--text-main);
+    }
+    .preview-content {
+      flex: 1;
+      padding: 1.5rem;
+      overflow-y: auto;
+      background: var(--card-bg);
+      line-height: 1.7;
+      font-size: 0.9375rem;
+    }
+    /* Markdown Styling */
+    .preview-content h1, .preview-content h2, .preview-content h3, .preview-content h4 {
+      margin-top: 1.25rem;
+      margin-bottom: 0.5rem;
+      font-weight: 700;
+      line-height: 1.3;
+    }
+    .preview-content h1:first-child, .preview-content h2:first-child {
+      margin-top: 0;
+    }
+    .preview-content h1 { font-size: 1.5rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.3rem; }
+    .preview-content h2 { font-size: 1.25rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.2rem; }
+    .preview-content h3 { font-size: 1.1rem; }
+    .preview-content p { margin-bottom: 1rem; }
+    .preview-content ul, .preview-content ol { margin-bottom: 1rem; padding-left: 1.5rem; }
+    .preview-content li { margin-bottom: 0.25rem; }
+    .preview-content blockquote {
+      border-left: 4px solid var(--primary);
+      padding: 0.5rem 1rem;
+      margin-bottom: 1rem;
+      color: var(--text-muted);
+      background: var(--code-bg);
+      border-radius: 0 4px 4px 0;
+    }
+    .preview-content code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.85em;
+      padding: 0.15em 0.35em;
+      background: var(--code-bg);
+      color: var(--code-color);
+      border-radius: 4px;
+    }
+    .preview-content pre {
+      background: var(--code-bg);
+      padding: 1rem;
+      border-radius: 6px;
+      overflow-x: auto;
+      margin-bottom: 1rem;
+      border: 1px solid var(--border-color);
+    }
+    .preview-content pre code {
+      padding: 0;
+      background: transparent;
+      border-radius: 0;
+    }
+    .preview-content hr {
+      border: none;
+      border-top: 1px solid var(--border-color);
+      margin: 1.5rem 0;
+    }
+    @media (max-width: 640px) {
+      .workspace {
+        flex-direction: column;
+      }
+      .editor-pane {
+        border-right: none;
+        border-bottom: 1px solid var(--border-color);
+        height: 50%;
+      }
+      .preview-pane {
+        height: 50%;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Markdown Previewer</h1>
+    <div class="toolbar">
+      <button type="button" id="btn-copy" class="btn" title="HTMLをクリップボードにコピー">HTMLコピー</button>
+      <button type="button" id="btn-download" class="btn btn-primary" title="Markdownをダウンロード">MD保存</button>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <section class="pane editor-pane" aria-label="Markdown編集領域">
+      <div class="pane-header">Markdown Input</div>
+      <textarea id="markdown-input" placeholder="# 見出しを入力..." aria-label="Markdownソースコード"></textarea>
+    </section>
+
+    <section class="pane preview-pane" aria-label="HTMLプレビュー領域">
+      <div class="pane-header">Live Preview</div>
+      <div id="preview-output" class="preview-content" role="region" aria-live="polite"></div>
+    </section>
+  </main>
+
+  <script>
+    (function () {
+      'use strict';
+      var input = document.getElementById('markdown-input');
+      var output = document.getElementById('preview-output');
+      var btnCopy = document.getElementById('btn-copy');
+      var btnDownload = document.getElementById('btn-download');
+
+      var initialText = '# GAS Artifact Hub へようこそ\n\n' +
+        'これは**自己完結型**のMarkdownプレビューサンプルです。\n\n' +
+        '## 特徴\n' +
+        '- 外部通信ゼロ（外部CDNスクリプトなし）\n' +
+        '- インラインCSS & JavaScript\n' +
+        '- HTMLエスケープ徹底による安全な描画\n\n' +
+        '### コード例\n' +
+        '```javascript\n' +
+        'console.log("Hello, Artifact Hub!");\n' +
+        '```\n\n' +
+        '> ゼロトラスト環境で安全に動作します。\n';
+
+      input.value = initialText;
+
+      function escapeHtml(str) {
+        return str
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#39;');
+      }
+
+      // 軽量・安全なインラインMarkdownパーサー
+      function renderMarkdown(md) {
+        var lines = md.split(/\r?\n/);
+        var html = [];
+        var inCodeBlock = false;
+        var codeLines = [];
+        var inUl = false;
+        var inOl = false;
+
+        function closeLists() {
+          if (inUl) { html.push('</ul>'); inUl = false; }
+          if (inOl) { html.push('</ol>'); inOl = false; }
+        }
+
+        for (var i = 0; i < lines.length; i++) {
+          var line = lines[i];
+
+          // コードブロック
+          if (/^```/.test(line)) {
+            if (inCodeBlock) {
+              html.push('<pre><code>' + escapeHtml(codeLines.join('\n')) + '</code></pre>');
+              codeLines = [];
+              inCodeBlock = false;
+            } else {
+              closeLists();
+              inCodeBlock = true;
+            }
+            continue;
+          }
+          if (inCodeBlock) {
+            codeLines.push(line);
+            continue;
+          }
+
+          // 空行
+          if (!line.trim()) {
+            closeLists();
+            continue;
+          }
+
+          // 見出し
+          if (/^### (.*)/.test(line)) {
+            closeLists();
+            html.push('<h3>' + parseInline(line.replace(/^### /, '')) + '</h3>');
+            continue;
+          }
+          if (/^## (.*)/.test(line)) {
+            closeLists();
+            html.push('<h2>' + parseInline(line.replace(/^## /, '')) + '</h2>');
+            continue;
+          }
+          if (/^# (.*)/.test(line)) {
+            closeLists();
+            html.push('<h1>' + parseInline(line.replace(/^# /, '')) + '</h1>');
+            continue;
+          }
+
+          // 引用
+          if (/^> (.*)/.test(line)) {
+            closeLists();
+            html.push('<blockquote>' + parseInline(line.replace(/^> /, '')) + '</blockquote>');
+            continue;
+          }
+
+          // リスト
+          if (/^[-*] (.*)/.test(line)) {
+            if (inOl) { html.push('</ol>'); inOl = false; }
+            if (!inUl) { html.push('<ul>'); inUl = true; }
+            html.push('<li>' + parseInline(line.replace(/^[-*] /, '')) + '</li>');
+            continue;
+          }
+          if (/^\d+\. (.*)/.test(line)) {
+            if (inUl) { html.push('</ul>'); inUl = false; }
+            if (!inOl) { html.push('<ol>'); inOl = true; }
+            html.push('<li>' + parseInline(line.replace(/^\d+\. /, '')) + '</li>');
+            continue;
+          }
+
+          // 水平線
+          if (/^(?:---|\*\*\*|___)$/.test(line.trim())) {
+            closeLists();
+            html.push('<hr>');
+            continue;
+          }
+
+          // 通常段落
+          closeLists();
+          html.push('<p>' + parseInline(line) + '</p>');
+        }
+
+        closeLists();
+        if (inCodeBlock) {
+          html.push('<pre><code>' + escapeHtml(codeLines.join('\n')) + '</code></pre>');
+        }
+        return html.join('\n');
+      }
+
+      function parseInline(text) {
+        var escaped = escapeHtml(text);
+        // インラインコード
+        escaped = escaped.replace(/`([^`]+)`/g, '<code>$1</code>');
+        // 太字
+        escaped = escaped.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+        // 斜体
+        escaped = escaped.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+        return escaped;
+      }
+
+      function updatePreview() {
+        output.innerHTML = renderMarkdown(input.value);
+      }
+
+      input.addEventListener('input', updatePreview);
+      updatePreview();
+
+      // HTMLコピー
+      btnCopy.addEventListener('click', function () {
+        var rendered = renderMarkdown(input.value);
+        navigator.clipboard.writeText(rendered).then(function () {
+          btnCopy.textContent = 'コピー完了!';
+          setTimeout(function () { btnCopy.textContent = 'HTMLコピー'; }, 1500);
+        }).catch(function () {
+          alert('クリップボードへのコピーに失敗しました。');
+        });
+      });
+
+      // Markdownダウンロード（ユーザーのクリック起点）
+      btnDownload.addEventListener('click', function () {
+        var text = input.value;
+        var blob = new Blob([text], { type: 'text/markdown;charset=utf-8;' });
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = 'document.md';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(function () { URL.revokeObjectURL(url); }, 100);
+      });
+    })();
+  </script>
+</body>
+</html>

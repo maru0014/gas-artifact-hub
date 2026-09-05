@@ -1,0 +1,1033 @@
+<script>
+  // 保存禁止や容量超過でも、画面の操作はこのページ内のメモリで継続する。
+  const memoryStorage_ = Object.create(null);
+  function readStorage_(key) {
+    if (Object.prototype.hasOwnProperty.call(memoryStorage_, key)) return memoryStorage_[key];
+    try { return localStorage.getItem(key); } catch (error) { return null; }
+  }
+  function writeStorage_(key, value) {
+    memoryStorage_[key] = String(value);
+    try { localStorage.setItem(key, String(value)); } catch (error) { /* 保存できない環境ではページ内のみ保持 */ }
+  }
+
+
+  const dialogStack_ = [];
+  function showDialog_(id) {
+    const dialog = document.getElementById(id);
+    if (!dialog) return;
+    if (!dialog.classList.contains('show')) {
+      dialog._previousFocus = document.activeElement;
+      dialogStack_.push(id);
+    }
+    dialog.classList.add('show');
+    dialog.inert = false;
+    dialog.setAttribute('tabindex', '-1');
+    const first = dialog.querySelector('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href]');
+    (first || dialog).focus();
+  }
+  function hideDialog_(id) {
+    const dialog = document.getElementById(id);
+    if (!dialog) return;
+    dialog.classList.remove('show');
+    dialog.inert = true;
+    const index = dialogStack_.lastIndexOf(id);
+    if (index >= 0) dialogStack_.splice(index, 1);
+    if (dialog._previousFocus && dialog._previousFocus.isConnected) dialog._previousFocus.focus();
+  }
+  function setupDialogKeyboard_() {
+    document.addEventListener('keydown', function (event) {
+      if (event.key !== 'Tab') return;
+      const id = dialogStack_[dialogStack_.length - 1];
+      const dialog = id && document.getElementById(id);
+      if (!dialog || !dialog.classList.contains('show')) return;
+      const focusable = Array.from(dialog.querySelectorAll('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex="0"]')).filter(el => el.getClientRects().length);
+      if (!focusable.length) { event.preventDefault(); dialog.focus(); return; }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && (document.activeElement === first || !dialog.contains(document.activeElement))) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && (document.activeElement === last || !dialog.contains(document.activeElement))) { event.preventDefault(); first.focus(); }
+    });
+  }
+  function setDialogDisabled_(id, disabled) {
+    document.getElementById(id).querySelectorAll('input, textarea, select, button:not([data-dialog-close])').forEach(el => { el.disabled = disabled; });
+  }
+  function copyText_(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(() => showToast('共有リンクをコピーしました')).catch(() => window.prompt('次のURLをコピーしてください', text));
+    } else { window.prompt('次のURLをコピーしてください', text); }
+  }
+
+  var appConfig = {
+    userEmail: '',
+    maxHtmlSizeKb: 1024,
+    systemEnabled: true
+  };
+
+  var uploadState = {
+    file: null,
+    htmlContent: '',
+    fileReadId: 0,
+    busy: false,
+    isUpdateMode: false,
+    updateArtifactId: '',
+    selectedAcl: 'all'
+  };
+
+  var currentArtifacts = [];
+  var activeCategory = 'all';
+  var editMenuState = { artifactId: '' };
+  var listRequestId_ = 0;
+  var searchTimer_;
+  var activeViewMode_ = 'grid';
+
+  /**
+   * script.google.com の正規URLかどうかを厳格に検証（オープンリダイレクト防止）
+   */
+  function isValidScriptAppUrl(url) {
+    if (!url || typeof url !== 'string') return false;
+    return /^https:\/\/(?:[a-zA-Z0-9-]+\.)*script\.google\.com(?::\d+)?\//i.test(url);
+  }
+
+  function getAppBaseUrl() {
+    var rawUrl = '';
+
+    // 1. 同一オリジンの場合、最上位ウィンドウ（window.top）のURLを直接取得
+    try {
+      if (window.top && window.top.location && window.top.location.href) {
+        var topHref = window.top.location.href;
+        if (isValidScriptAppUrl(topHref)) {
+          rawUrl = topHref;
+        }
+      }
+    } catch (e) {}
+
+    // 2. document.referrer が script.google.com の場合
+    if (!rawUrl) {
+      try {
+        if (isValidScriptAppUrl(document.referrer)) {
+          rawUrl = document.referrer;
+        }
+      } catch (e) {}
+    }
+
+    // 3. サーバーから渡された URL (ScriptApp.getService().getUrl())
+    if (!rawUrl && typeof APP_URL !== 'undefined' && APP_URL) {
+      rawUrl = String(APP_URL).trim().replace(/^["']+|["']+$/g, '');
+    }
+
+    // 4. フォールバック
+    if (!rawUrl) {
+      rawUrl = window.location.origin + window.location.pathname;
+    }
+
+    return rawUrl.split('?')[0].split('#')[0];
+  }
+
+  function getViewerUrl(artifactId) {
+    var base = getAppBaseUrl();
+    var sep = base.indexOf('?') === -1 ? '?' : '&';
+    return base + sep + 'a=' + encodeURIComponent(artifactId);
+  }
+
+  function launchViewer(url) {
+    if (!url) return;
+    try {
+      if (window.top) {
+        window.top.location.href = url;
+        return;
+      }
+    } catch (e) {
+      try {
+        window.open(url, '_top');
+        return;
+      } catch (e2) {}
+    }
+    window.location.href = url;
+  }
+
+  window.addEventListener('DOMContentLoaded', function () {
+    setupDialogKeyboard_();
+    // テーマ初期化
+    var savedTheme = readStorage_('hub_theme') || 'light';
+    document.documentElement.setAttribute('data-theme', savedTheme);
+
+    setupEventListeners();
+    bootstrapApp();
+  });
+
+  function toggleTheme() {
+    var html = document.documentElement;
+    var next = html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+    html.setAttribute('data-theme', next);
+    writeStorage_('hub_theme', next);
+  }
+
+
+
+
+
+
+
+  function applyConfig(cfg) {
+    if (!cfg) return;
+    appConfig = cfg;
+    var email = appConfig.userEmail || '';
+    document.getElementById('user-email-display').textContent = email || 'ゲスト (未認証)';
+    var initial = email ? email.charAt(0).toUpperCase() : '?';
+    document.getElementById('user-avatar').textContent = initial;
+    var dropHint = document.getElementById('drop-size-hint');
+    if (dropHint) {
+      dropHint.textContent = '単一HTMLを検査して組織内で共有します (最大 ' + appConfig.maxHtmlSizeKb + ' KB)';
+    }
+  }
+
+  function renderSkeletonView() {
+    var gridView = document.getElementById('gridView');
+    var tableBody = document.getElementById('tableBody');
+
+    var singleCard = [
+      '<div class="skeleton-card">',
+      '  <div class="skeleton-head">',
+      '    <div class="skeleton-title-group">',
+      '      <div class="skeleton-title skeleton-shimmer"></div>',
+      '      <div class="skeleton-id skeleton-shimmer"></div>',
+      '    </div>',
+      '    <div class="skeleton-badge skeleton-shimmer"></div>',
+      '  </div>',
+      '  <div class="skeleton-desc">',
+      '    <div class="skeleton-line skeleton-shimmer"></div>',
+      '    <div class="skeleton-line short skeleton-shimmer"></div>',
+      '  </div>',
+      '  <div class="skeleton-foot">',
+      '    <div class="skeleton-author">',
+      '      <div class="skeleton-avatar skeleton-shimmer"></div>',
+      '      <div class="skeleton-author-name skeleton-shimmer"></div>',
+      '    </div>',
+      '    <div class="skeleton-btn skeleton-shimmer"></div>',
+      '  </div>',
+      '</div>'
+    ].join('');
+
+    var singleRow = [
+      '<tr class="skeleton-row">',
+      '  <td><div class="skeleton-cell-bar skeleton-shimmer" style="width: 70%;"></div></td>',
+      '  <td><div class="skeleton-cell-bar skeleton-shimmer" style="width: 50%;"></div></td>',
+      '  <td><div class="skeleton-cell-bar skeleton-shimmer" style="width: 60px;"></div></td>',
+      '  <td><div class="skeleton-cell-bar skeleton-shimmer" style="width: 80px;"></div></td>',
+      '  <td><div class="skeleton-cell-bar skeleton-shimmer" style="width: 70px;"></div></td>',
+      '  <td style="text-align: right;"><div class="skeleton-cell-bar skeleton-shimmer" style="width: 50px; margin-left: auto;"></div></td>',
+      '</tr>'
+    ].join('');
+
+    if (gridView) {
+      gridView.innerHTML = singleCard + singleCard + singleCard + singleCard + singleCard + singleCard;
+    }
+    if (tableBody) {
+      tableBody.innerHTML = singleRow + singleRow + singleRow + singleRow + singleRow;
+    }
+  }
+
+  function bootstrapApp() {
+    // HTMLの殻を先に表示し、設定と一覧は一度のRPCで取得する。
+    loadArtifactList();
+  }
+
+  function setupEventListeners() {
+    // 全画面ドラッグ＆ドロップ
+    var dropOverlay = document.getElementById('dropOverlay');
+
+    window.addEventListener('dragover', function (e) {
+      e.preventDefault();
+      dropOverlay.classList.add('active');
+    });
+
+    window.addEventListener('dragleave', function (e) {
+      if (e.relatedTarget === null) {
+        dropOverlay.classList.remove('active');
+      }
+    });
+
+    window.addEventListener('drop', function (e) {
+      e.preventDefault();
+      dropOverlay.classList.remove('active');
+      var files = e.dataTransfer.files;
+      if (files && files.length > 0) {
+        if (document.getElementById('drawer').classList.contains('show')) processFile(files[0]);
+        else openDrawer(false, null, files[0]);
+      }
+    });
+
+    // キーボードショートカット (⌘K / Ctrl+K, Escape)
+    window.addEventListener('keydown', function (e) {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        var searchInput = document.getElementById('searchInput');
+        searchInput.focus();
+        searchInput.select();
+      }
+      if (e.key === 'Escape') {
+        closeDrawer();
+        closeEditMenu();
+        closeEditModal();
+      }
+    });
+
+    // 「編集」ドロップダウンメニューの外側クリックで閉じる
+    document.addEventListener('click', function (e) {
+      var menu = document.getElementById('cardEditMenu');
+      if (menu.classList.contains('show') && !menu.contains(e.target)) {
+        closeEditMenu();
+      }
+    });
+  }
+
+  function loadArtifactList(showSkeleton) {
+    const requestId = ++listRequestId_;
+    const status = document.getElementById('status-message');
+    const refresh = document.getElementById('btnRefreshList');
+    status.style.display = 'none';
+    refresh.classList.add('is-refreshing');
+    refresh.disabled = true;
+    document.getElementById('gridView').setAttribute('aria-busy', 'true');
+    if (!currentArtifacts.length || showSkeleton) renderSkeletonView();
+    function finish(error) {
+      refresh.classList.remove('is-refreshing');
+      refresh.disabled = false;
+      document.getElementById('gridView').setAttribute('aria-busy', 'false');
+      renderArtifacts(currentArtifacts);
+      if (error) { status.textContent = error + ' 「更新」で再試行できます。'; status.style.display = 'block'; }
+    }
+    google.script.run.withSuccessHandler(function (res) {
+      if (requestId !== listRequestId_) return;
+      if (!res || !res.ok) { finish('一覧取得エラー: ' + ((res && res.error) || '応答を取得できませんでした')); return; }
+      if (res.data && res.data.config) applyConfig(res.data.config);
+      currentArtifacts = res.data && Array.isArray(res.data.artifacts) ? res.data.artifacts : [];
+      updateBadgeCounts(currentArtifacts);
+      finish();
+    }).withFailureHandler(function (error) {
+      if (requestId !== listRequestId_) return;
+      finish('通信エラー: ' + error.message);
+    }).apiGetInitialData();
+  }
+
+  function updateBadgeCounts(list) {
+    var myEmail = (appConfig.userEmail || '').toLowerCase();
+    var allCount = list.length;
+    var myCount = 0;
+    var favCount = 0;
+    var dataCount = 0;
+    var textCount = 0;
+    var devCount = 0;
+
+    var favs = getFavorites();
+
+    list.forEach(function (a) {
+      var isOwner = (a.createdBy || '').toLowerCase() === myEmail;
+      if (isOwner) myCount++;
+      if (favs.indexOf(a.artifactId) !== -1) favCount++;
+
+      var text = ((a.title || '') + ' ' + (a.description || '')).toLowerCase();
+      if (text.match(/data|csv|tsv|分析|チャート|グラフ|スプレッドシート|売上/i)) dataCount++;
+      else if (text.match(/text|文書|議事録|要約|マークダウン|markdown|辞書/i)) textCount++;
+      else devCount++;
+    });
+
+    document.getElementById('badgeAllCount').textContent = allCount;
+    document.getElementById('badgeFavCount').textContent = favCount;
+    document.getElementById('badgeMyCount').textContent = myCount;
+    document.getElementById('badgeDataCount').textContent = dataCount;
+    document.getElementById('badgeTextCount').textContent = textCount;
+    document.getElementById('badgeDevCount').textContent = devCount;
+  }
+
+  function renderArtifacts(list) {
+    var gridView = document.getElementById('gridView');
+    var tableBody = document.getElementById('tableBody');
+    gridView.innerHTML = '';
+    tableBody.innerHTML = '';
+
+    if (!list || list.length === 0) {
+      var emptyMsg = '<div style="padding: 40px; text-align: center; color: var(--text-sub); grid-column: 1/-1;">公開中のアーティファクトはありません。「アーティファクトを共有」から最初のアーティファクトを投稿してみましょう！</div>';
+      gridView.innerHTML = emptyMsg;
+      tableBody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 32px; color: var(--text-sub);">アーティファクトがありません</td></tr>';
+      document.getElementById('filteredCount').textContent = '0 件';
+      return;
+    }
+
+    var myEmail = (appConfig.userEmail || '').toLowerCase();
+    var favs = getFavorites();
+    var q = document.getElementById('searchInput').value.toLowerCase().trim();
+    var visibleCount = 0;
+
+    list.forEach(function (art) {
+      var titleLower = (art.title || '').toLowerCase();
+      var descLower = (art.description || '').toLowerCase();
+      var authorEmail = (art.createdBy || '').toLowerCase();
+      var authorName = authorEmail ? authorEmail.split('@')[0] : '不明';
+      var isOwner = !!art.isEditor;
+      var isFav = favs.indexOf(art.artifactId) !== -1;
+
+      // カテゴリ判定
+      var cat = 'dev';
+      var combined = titleLower + ' ' + descLower;
+      if (combined.match(/data|csv|tsv|分析|チャート|グラフ|スプレッドシート|売上/i)) cat = 'data';
+      else if (combined.match(/text|文書|議事録|要約|マークダウン|markdown|辞書/i)) cat = 'text';
+
+      // フィルター条件
+      var matchesCategory = (
+        activeCategory === 'all' ||
+        (activeCategory === 'fav' && isFav) ||
+        (activeCategory === 'my' && isOwner) ||
+        (activeCategory === cat)
+      );
+
+      var matchesSearch = !q || (titleLower.indexOf(q) !== -1 || descLower.indexOf(q) !== -1 || art.artifactId.toLowerCase().indexOf(q) !== -1 || authorName.indexOf(q) !== -1);
+
+      if (!matchesCategory || !matchesSearch) {
+        return;
+      }
+      visibleCount++;
+
+      var viewerUrl = getViewerUrl(art.artifactId);
+      var updatedDate = art.updatedAt ? new Date(art.updatedAt).toLocaleDateString('ja-JP') : '';
+      var visText = art.visibility === 'all' ? '全社公開' : (art.visibility === 'list' ? '限定公開' : '自分のみ');
+
+      // 1. グリッドカード作成
+      var card = document.createElement('div');
+      card.className = 'card';
+
+      var descHtml = (art.description && art.description.trim()) ?
+        `<p class="card-desc">${escapeHtml(art.description)}</p>` : '';
+
+      var editBtnHtml = isOwner ?
+        `<button class="btn-action-ghost" onclick="event.stopPropagation(); toggleEditMenu(this, '${escapeHtml(art.artifactId)}')">編集</button>` : '';
+
+      var favBtnHtml = `
+        <button class="btn-action-ghost" style="padding: 0 6px;" onclick="event.stopPropagation(); toggleFavorite('${escapeHtml(art.artifactId)}')" title="お気に入り登録" aria-label="お気に入り登録">
+          <svg class="icon" style="width: 13px; height: 13px; ${isFav ? 'color: #eab308; fill: #eab308;' : ''}" viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+        </button>
+      `;
+
+      var shareBtnHtml = `
+        <button class="btn-action-ghost" style="padding: 0 6px;" onclick="event.stopPropagation(); copyLink('${escapeHtml(art.artifactId)}')" title="共有リンクをコピー" aria-label="共有リンクをコピー">
+          <svg class="icon" style="width: 13px; height: 13px;" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+        </button>
+      `;
+
+      if (activeViewMode_ === 'grid') {
+      card.innerHTML = `
+        <div class="card-head">
+          <div class="card-title-group">
+            <h2 class="card-title">${escapeHtml(art.title || art.artifactId)}</h2>
+            <div class="card-id">${escapeHtml(art.artifactId)}</div>
+          </div>
+          <span class="badge-tag badge-safe">
+            <svg class="icon" style="width: 11px; height: 11px;" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            ${escapeHtml(visText)}
+          </span>
+        </div>
+        ${descHtml}
+        <div class="card-foot">
+          <div class="author-info">
+            <div class="avatar" style="width: 18px; height: 18px; font-size: 9px;">${escapeHtml(authorName.charAt(0).toUpperCase())}</div>
+            <span>${escapeHtml(authorName)} · ${escapeHtml(updatedDate)}</span>
+          </div>
+          <div class="card-actions">
+            ${favBtnHtml}
+            ${shareBtnHtml}
+            ${editBtnHtml}
+            <a href="${escapeHtml(viewerUrl)}" target="_top" class="btn-action-primary" onclick="event.stopPropagation(); launchViewer(this.href); return false;">起動</a>
+          </div>
+        </div>
+      `;
+      gridView.appendChild(card);
+      }
+
+      if (activeViewMode_ === 'list') {
+      // 2. テーブル行作成
+      var tr = document.createElement('tr');
+      tr.className = 'table-row';
+      tr.innerHTML = `
+        <td>
+          <div style="font-weight: 600; color: var(--text);">${escapeHtml(art.title || art.artifactId)}</div>
+          <div style="font-size: 11px; color: var(--text-sub);">${escapeHtml(art.description || '')}</div>
+        </td>
+        <td><code>${escapeHtml(art.artifactId)}</code></td>
+        <td><span class="badge-tag">${escapeHtml(visText)}</span></td>
+        <td>${escapeHtml(authorName)}</td>
+        <td>${escapeHtml(updatedDate)}</td>
+        <td style="text-align: right;">
+          <div style="display: inline-flex; gap: 4px; align-items: center; justify-content: flex-end;">
+            <button class="btn-action-ghost" style="padding: 0 6px;" onclick="copyLink('${escapeHtml(art.artifactId)}')" title="共有リンクをコピー" aria-label="共有リンクをコピー">
+              <svg class="icon" style="width: 13px; height: 13px;" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+            </button>
+            ${editBtnHtml}
+            <a href="${escapeHtml(viewerUrl)}" target="_top" class="btn-action-primary" onclick="launchViewer(this.href); return false;">起動</a>
+          </div>
+        </td>
+      `;
+      tableBody.appendChild(tr);
+      }
+    });
+
+    document.getElementById('filteredCount').textContent = visibleCount + ' 件';
+  }
+
+  // お気に入りローカル管理
+  function getFavorites() {
+    try {
+      const value = JSON.parse(readStorage_('hub_favorites_' + (appConfig.userEmail || '')) || '[]');
+      return Array.isArray(value) ? value.filter(id => typeof id === 'string') : [];
+    } catch (error) { return []; }
+  }
+  function toggleFavorite(id) {
+    var favs = getFavorites();
+    var idx = favs.indexOf(id);
+    if (idx === -1) {
+      favs.push(id);
+      showToast('お気に入りに追加しました');
+    } else {
+      favs.splice(idx, 1);
+      showToast('お気に入りを解除しました');
+    }
+    writeStorage_('hub_favorites_' + (appConfig.userEmail || ''), JSON.stringify(favs));
+    updateBadgeCounts(currentArtifacts);
+    renderArtifacts(currentArtifacts);
+  }
+
+  // 検索
+  function handleSearch() {
+    clearTimeout(searchTimer_);
+    searchTimer_ = setTimeout(() => renderArtifacts(currentArtifacts), 120);
+  }
+
+  // カテゴリ選択
+  function setCategoryFilter(cat, el) {
+    activeCategory = cat;
+    document.querySelectorAll('.nav-item').forEach(function (item) {
+      item.classList.remove('active');
+    });
+    el.classList.add('active');
+    document.getElementById('currentSectionTitle').textContent = el.querySelector('span').textContent;
+    renderArtifacts(currentArtifacts);
+  }
+
+  // 表示モード切替 (grid / list)
+  function switchViewMode(mode) {
+    activeViewMode_ = mode;
+    var gridView = document.getElementById('gridView');
+    var listView = document.getElementById('listView');
+    var btnGrid = document.getElementById('btnGrid');
+    var btnList = document.getElementById('btnList');
+
+    if (mode === 'grid') {
+      gridView.style.display = 'grid';
+      listView.style.display = 'none';
+      btnGrid.classList.add('active');
+      btnList.classList.remove('active');
+    } else {
+      gridView.style.display = 'none';
+      listView.style.display = 'block';
+      btnGrid.classList.remove('active');
+      btnList.classList.add('active');
+    }
+    btnGrid.setAttribute('aria-pressed', mode === 'grid');
+    btnList.setAttribute('aria-pressed', mode === 'list');
+    renderArtifacts(currentArtifacts);
+  }
+
+  // Drawer (アップロード / 更新)
+  function openDrawer(isUpdate, artifactId, preselectedFile) {
+    if (uploadState.busy) return;
+    uploadState.isUpdateMode = !!isUpdate;
+    uploadState.updateArtifactId = artifactId || '';
+
+    var titleLabel = document.getElementById('drawerHeaderTitle');
+    var visField = document.getElementById('visibility-field');
+
+
+    if (isUpdate) {
+      titleLabel.textContent = '新バージョンの投稿 (' + artifactId + ')';
+      visField.style.display = 'none';
+      document.getElementById('artifact-details-fields').style.display = 'none';
+    } else {
+      titleLabel.textContent = 'アーティファクトを共有';
+      visField.style.display = 'block';
+      document.getElementById('artifact-details-fields').style.display = 'block';
+    }
+
+    clearDrawerInputs();
+
+    if (preselectedFile) {
+      processFile(preselectedFile);
+    }
+
+    document.getElementById('drawerBackdrop').classList.add('show');
+    showDialog_('drawer');
+  }
+
+  function closeDrawer() {
+    if (uploadState.busy) return;
+    ++uploadState.fileReadId;
+    document.getElementById('drawerBackdrop').classList.remove('show');
+    hideDialog_('drawer');
+  }
+
+  function clearDrawerInputs() {
+    ++uploadState.fileReadId;
+    uploadState.file = null;
+    uploadState.htmlContent = '';
+    document.getElementById('file-input-hidden').value = '';
+    document.getElementById('input-title').value = '';
+    document.getElementById('input-desc').value = '';
+    document.getElementById('input-principals').value = '';
+    document.getElementById('selected-file-label').textContent = 'HTMLファイルを選択またはドロップ';
+    document.getElementById('selected-file-sub').textContent = 'クリックしてファイルを選択';
+    document.getElementById('scanSummaryCard').style.display = 'none';
+    document.getElementById('btn-submit-upload').disabled = true;
+    selectAcl('all');
+  }
+
+  function handleFileInputChange(files) {
+    if (files && files.length > 0) {
+      processFile(files[0]);
+    }
+  }
+
+  function resetFilePreview_() {
+    document.getElementById('selected-file-label').textContent = 'HTMLファイルを選択またはドロップ';
+    document.getElementById('selected-file-sub').textContent = 'クリックしてファイルを選択';
+    var card = document.getElementById('scanSummaryCard');
+    if (card) card.style.display = 'none';
+  }
+
+  function processFile(file) {
+    if (uploadState.busy) return;
+    const readId = ++uploadState.fileReadId;
+    uploadState.htmlContent = '';
+    uploadState.file = null;
+    document.getElementById('btn-submit-upload').disabled = true;
+    if (!file.name.match(/\.(html|htm)$/i)) {
+      showToast('単一のHTMLファイル (.html / .htm) を選択してください');
+      resetFilePreview_();
+      return;
+    }
+
+    var maxBytes = appConfig.maxHtmlSizeKb * 1024;
+    if (file.size > maxBytes) {
+      showToast('ファイルサイズ (' + Math.round(file.size / 1024) + ' KB) が上限を超えています');
+      resetFilePreview_();
+      return;
+    }
+
+    uploadState.file = file;
+    document.getElementById('selected-file-label').textContent = file.name;
+    document.getElementById('selected-file-sub').textContent = Math.round(file.size / 1024) + ' KB · 準備完了';
+
+    var reader = new FileReader();
+    reader.onload = function (e) {
+      if (readId !== uploadState.fileReadId) return;
+      uploadState.htmlContent = e.target.result;
+
+      // タイトル自動補完
+      var titleInput = document.getElementById('input-title');
+      if (!titleInput.value) {
+        titleInput.value = file.name.replace(/\.[^/.]+$/, '');
+      }
+
+      // クライアント側簡易スキャンプレビュー
+      previewScanResult(uploadState.htmlContent, file.size);
+      document.getElementById('btn-submit-upload').disabled = false;
+    };
+    reader.onerror = reader.onabort = function () {
+      if (readId !== uploadState.fileReadId) return;
+      uploadState.htmlContent = '';
+      document.getElementById('btn-submit-upload').disabled = true;
+      showToast('ファイルの読み込みに失敗しました。再選択してください');
+    };
+    reader.readAsText(file);
+  }
+
+  function previewScanResult(html, sizeBytes) {
+    var card = document.getElementById('scanSummaryCard');
+    card.style.display = 'block';
+
+    document.getElementById('scan-filesize').textContent = (sizeBytes / 1024).toFixed(1) + ' KB (' + (sizeBytes <= 90 * 1024 ? '高速キャッシュ適用' : 'Drive直読み') + ')';
+
+    var hasNetwork = html.match(/\b(fetch|XMLHttpRequest|WebSocket|sendBeacon|EventSource)\b/i);
+    var networkEl = document.getElementById('scan-network-status');
+    if (hasNetwork) {
+      networkEl.textContent = '外部通信API検出あり';
+      networkEl.style.color = 'var(--badge-warn-text)';
+    } else {
+      networkEl.textContent = '検出なし（安全性の保証ではありません）';
+      networkEl.style.color = 'var(--badge-safe-text)';
+    }
+
+    document.getElementById('scan-auth-status').textContent = '親画面から分離して実行';
+    document.getElementById('scan-status-title').textContent = '簡易検査プレビュー';
+  }
+
+  function selectAcl(acl) {
+    uploadState.selectedAcl = acl;
+    ['all', 'list', 'private'].forEach(function (k) {
+      var el = document.getElementById('acl-' + k);
+      if (el) el.classList.toggle('selected', k === acl);
+    });
+    document.getElementById('principals-group').style.display = acl === 'list' ? 'block' : 'none';
+  }
+
+  function handleSubmitUpload() {
+    if (uploadState.busy) return;
+    if (!uploadState.htmlContent) {
+      showToast('HTMLファイルを選択してください');
+      return;
+    }
+
+    var btn = document.getElementById('btn-submit-upload');
+    btn.disabled = true;
+    btn.textContent = '公開処理中...';
+    uploadState.busy = true;
+
+    if (uploadState.isUpdateMode) {
+      // 新バージョン更新
+      google.script.run
+        .withSuccessHandler(function (res) {
+          uploadState.busy = false;
+        btn.disabled = false;
+          btn.textContent = '社内へ公開する';
+          if (!res.ok) {
+            showToast('更新失敗: ' + res.error);
+            return;
+          }
+          closeDrawer();
+          showToast('新バージョンが公開されました！');
+          loadArtifactList();
+        })
+        .withFailureHandler(function (err) {
+          uploadState.busy = false;
+        btn.disabled = false;
+          btn.textContent = '社内へ公開する';
+          showToast('通信エラー: ' + err.message);
+        })
+        .apiUploadVersion(uploadState.updateArtifactId, uploadState.htmlContent);
+
+    } else {
+      // 新規登録
+      var title = document.getElementById('input-title').value.trim();
+      if (!title) {
+        showToast('タイトルを入力してください');
+        uploadState.busy = false;
+        btn.disabled = false;
+        btn.textContent = '社内へ公開する';
+        return;
+      }
+      var desc = document.getElementById('input-desc').value.trim();
+      var principals = [];
+      if (uploadState.selectedAcl === 'list') {
+        principals = document.getElementById('input-principals').value
+          .split(/[\r\n,]+/)
+          .map(function (s) { return s.trim(); })
+          .filter(Boolean);
+        if (principals.length === 0) {
+          showToast('限定公開のメールアドレスを1件以上入力してください');
+          uploadState.busy = false;
+        btn.disabled = false;
+          btn.textContent = '社内へ公開する';
+          return;
+        }
+      }
+
+      google.script.run
+        .withSuccessHandler(function (res) {
+          uploadState.busy = false;
+        btn.disabled = false;
+          btn.textContent = '社内へ公開する';
+          if (!res.ok) {
+            showToast('公開失敗: ' + res.error);
+            return;
+          }
+          closeDrawer();
+          showToast('アーティファクトを正常に公開しました！');
+          loadArtifactList();
+        })
+        .withFailureHandler(function (err) {
+          uploadState.busy = false;
+        btn.disabled = false;
+          btn.textContent = '社内へ公開する';
+          showToast('通信エラー: ' + err.message);
+        })
+        .apiUploadArtifact({
+          title: title,
+          description: desc,
+          visibility: uploadState.selectedAcl,
+          htmlContent: uploadState.htmlContent,
+          principals: principals
+        });
+    }
+  }
+
+  // リンクコピー
+  function copyLink(artifactId) {
+    const base = (typeof APP_URL !== 'undefined' && APP_URL ? String(APP_URL) : getAppBaseUrl()).split('?')[0].split('#')[0].replace(/\/dev$/, '/exec');
+    copyText_(base + '?a=' + encodeURIComponent(artifactId));
+  }
+
+  // 「編集」ドロップダウンメニュー（カード共有1個。位置はクリックされたボタンに合わせてJSで決定）
+  function toggleEditMenu(btnEl, artifactId) {
+    var menu = document.getElementById('cardEditMenu');
+    var wasOpenForSame = menu.classList.contains('show') && editMenuState.artifactId === artifactId;
+    closeEditMenu();
+    if (wasOpenForSame) return;
+
+    editMenuState.artifactId = artifactId;
+    var rect = btnEl.getBoundingClientRect();
+    var menuWidth = 220;
+    var estHeight = 120;
+    var left = Math.min(Math.max(8, rect.right - menuWidth), window.innerWidth - menuWidth - 8);
+    var top = rect.bottom + 6;
+    if (top + estHeight > window.innerHeight) {
+      top = rect.top - estHeight - 6;
+    }
+    menu.style.left = left + 'px';
+    menu.style.top = top + 'px';
+    menu.classList.add('show');
+  }
+
+  function closeEditMenu() {
+    document.getElementById('cardEditMenu').classList.remove('show');
+  }
+
+  function handleEditMenuAction(action) {
+    var artifactId = editMenuState.artifactId;
+    closeEditMenu();
+    if (!artifactId) return;
+
+    if (action === 'metadata') {
+      openEditModal(artifactId);
+    } else if (action === 'version') {
+      openDrawer(true, artifactId);
+    } else if (action === 'delete') {
+      confirmDeleteArtifact(artifactId);
+    }
+  }
+
+  // アーティファクト設定編集モーダル（アーティファクト名・説明・用途・公開範囲）
+  // ACLの追加・権限変更・削除は都度サーバーへ送らず、モーダル内でのみ保持する
+  // 下書き（editAclDraft.staged）に反映し、「保存」クリック時にまとめて反映する
+  var editAclDraft = { original: [], staged: [], requestId: 0, loaded: false, saving: false, artifactId: '', custodian: '' };
+
+  function openEditModal(artifactId) {
+    if (editAclDraft.saving) return;
+    const art = currentArtifacts.find(a => a.artifactId === artifactId);
+    if (!art || !art.isEditor) return;
+    editMenuState.artifactId = artifactId;
+    const requestId = ++editAclDraft.requestId;
+    editAclDraft.artifactId = artifactId;
+    editAclDraft.custodian = String(art.custodian || '').toLowerCase();
+    editAclDraft.loaded = false;
+    editAclDraft.original = [];
+    editAclDraft.staged = [];
+    document.getElementById('edit-title-input').value = art.title || '';
+    document.getElementById('edit-desc-input').value = art.description || '';
+    document.getElementById('edit-visibility-select').value = art.visibility || 'all';
+    document.getElementById('editMetadataModal-status').textContent = 'メンバーを読み込んでいます...';
+    toggleEditAclSection();
+    renderAclRows([]);
+    showDialog_('editMetadataModal');
+    setDialogDisabled_('editMetadataModal', true);
+    google.script.run.withSuccessHandler(function (res) {
+      if (requestId !== editAclDraft.requestId) return;
+      if (!res || !res.ok) { aclLoadFailed_((res && res.error) || '応答を取得できませんでした'); return; }
+      const acls = (res.data.acls || []).filter(a => String(a.email).toLowerCase() !== editAclDraft.custodian).map(a => ({email: a.email, role: a.role}));
+      editAclDraft.original = acls;
+      editAclDraft.staged = acls.map(a => ({email: a.email, role: a.role}));
+      editAclDraft.loaded = true;
+      renderAclRows(editAclDraft.staged);
+      setDialogDisabled_('editMetadataModal', false);
+      document.getElementById('editMetadataModal-status').textContent = '管理責任者: ' + (editAclDraft.custodian || '未設定') + '（常に管理権限を保持します）';
+    }).withFailureHandler(function (error) {
+      if (requestId !== editAclDraft.requestId) return;
+      aclLoadFailed_(error.message);
+    }).apiGetAcl(artifactId);
+  }
+
+  function aclLoadFailed_(message) {
+    setDialogDisabled_('editMetadataModal', false);
+    document.getElementById('btn-save-edit-metadata').disabled = true;
+    document.getElementById('editMetadataModal-status').textContent = 'メンバー取得に失敗しました: ' + message + '。閉じて再度開いてください。';
+  }
+
+  function toggleEditAclSection() {
+    var visibility = document.getElementById('edit-visibility-select').value;
+    document.getElementById('edit-acl-section').style.display = (visibility === 'list') ? 'block' : 'none';
+  }
+
+  // 限定公開メンバー管理（下書き editAclDraft.staged をその場で描画するのみ。サーバー通信はしない）
+  // DOM APIで構築する（メールアドレスをHTML/JS属性文字列に埋め込むと、
+  // escapeHtmlしていても onclick 属性内のJS文字列リテラルとしては保護されず
+  // 保存型XSSになりうるため、テキストノード代入とaddEventListenerのみを使う）
+  function renderAclRows(acls) {
+    var container = document.getElementById('edit-acl-rows');
+    container.textContent = '';
+    if (!acls || acls.length === 0) {
+      var empty = document.createElement('div');
+      empty.className = 'acl-empty';
+      empty.textContent = 'メンバーが登録されていません';
+      container.appendChild(empty);
+      return;
+    }
+    acls.forEach(function (a) {
+      var email = a.email || '';
+      var row = document.createElement('div');
+      row.className = 'acl-member-row';
+
+      var span = document.createElement('span');
+      span.className = 'acl-member-email';
+      span.title = email;
+      span.textContent = email;
+
+      var select = document.createElement('select');
+      select.className = 'acl-role-select';
+      [['viewer', '閲覧のみ'], ['editor', '編集可']].forEach(function (opt) {
+        var option = document.createElement('option');
+        option.value = opt[0];
+        option.textContent = opt[1];
+        if (a.role === opt[0]) option.selected = true;
+        select.appendChild(option);
+      });
+      select.addEventListener('change', function () {
+        stageAclRoleChange(email, select.value);
+      });
+
+      var btn = document.createElement('button');
+      btn.className = 'acl-remove-btn';
+      btn.setAttribute('aria-label', '削除');
+      btn.textContent = '×';
+      btn.addEventListener('click', function () {
+        stageAclRemoval(email);
+      });
+
+      row.appendChild(span);
+      row.appendChild(select);
+      row.appendChild(btn);
+      container.appendChild(row);
+    });
+  }
+
+  function isValidAclEmail_(email) {
+    return /^[^\s'"<>@]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(email);
+  }
+
+  function addAclMember() {
+    if (!editAclDraft.loaded || editAclDraft.saving) return;
+    var emailInput = document.getElementById('edit-acl-email-input');
+    var email = emailInput.value.trim().toLowerCase();
+    var role = document.getElementById('edit-acl-role-select').value;
+
+    if (!isValidAclEmail_(email)) {
+      showToast('有効なメールアドレスを入力してください');
+      return;
+    }
+
+    if (email === editAclDraft.custodian) { showToast('管理責任者は常に管理権限を保持します'); return; }
+    var existing = editAclDraft.staged.filter(function (m) { return m.email.toLowerCase() === email; })[0];
+    if (existing) {
+      existing.role = role;
+    } else {
+      editAclDraft.staged.push({ email: email, role: role });
+    }
+    emailInput.value = '';
+    renderAclRows(editAclDraft.staged);
+  }
+
+  function stageAclRoleChange(email, role) {
+    if (!editAclDraft.loaded || editAclDraft.saving) return;
+    var member = editAclDraft.staged.filter(function (m) { return m.email === email; })[0];
+    if (member) member.role = role;
+  }
+
+  function stageAclRemoval(email) {
+    if (!editAclDraft.loaded || editAclDraft.saving) return;
+    editAclDraft.staged = editAclDraft.staged.filter(function (m) { return m.email !== email; });
+    renderAclRows(editAclDraft.staged);
+  }
+
+  function closeEditModal() {
+    if (editAclDraft.saving) return;
+    ++editAclDraft.requestId;
+    editAclDraft.loaded = false;
+    hideDialog_('editMetadataModal');
+  }
+
+  function saveEditMetadata() {
+    if (!editAclDraft.loaded || editAclDraft.saving) return;
+    const title = document.getElementById('edit-title-input').value.trim();
+    const description = document.getElementById('edit-desc-input').value.trim();
+    const visibility = document.getElementById('edit-visibility-select').value;
+    if (!title) { showToast('タイトルを入力してください'); return; }
+    const artifactId = editAclDraft.artifactId;
+    const acls = editAclDraft.staged.map(a => ({email: a.email, role: a.role}));
+    editAclDraft.saving = true;
+    setDialogDisabled_('editMetadataModal', true);
+    document.getElementById('btn-save-edit-metadata').textContent = '保存中...';
+    function finish(error) {
+      editAclDraft.saving = false;
+      setDialogDisabled_('editMetadataModal', false);
+      document.getElementById('btn-save-edit-metadata').textContent = '設定を保存';
+      if (error) {
+        document.getElementById('editMetadataModal-status').textContent = '保存失敗: ' + error + '。入力内容を保持しています。';
+        return;
+      }
+      closeEditModal();
+      showToast('設定を保存しました');
+      loadArtifactList();
+    }
+    google.script.run.withSuccessHandler(function (res) {
+      finish(res && res.ok ? '' : (res && res.error) || '応答を取得できませんでした');
+    }).withFailureHandler(error => finish(error.message))
+      .apiSaveArtifactSettings(artifactId, title, description, visibility, acls);
+  }
+
+  // 一覧からの削除（一覧ページ内で完結するため画面遷移は不要）
+  function confirmDeleteArtifact(artifactId) {
+    if (!confirm('このアーティファクトを無効化（削除）しますか？ 社員がアクセスできなくなります。')) {
+      return;
+    }
+
+    google.script.run
+      .withSuccessHandler(function (res) {
+        if (!res.ok) {
+          showToast('削除失敗: ' + res.error);
+          return;
+        }
+        showToast('アーティファクトを無効化しました');
+        loadArtifactList();
+      })
+      .withFailureHandler(function (err) {
+        showToast('通信エラー: ' + err.message);
+      })
+      .apiDeleteArtifact(artifactId);
+  }
+
+  // トースト
+  function showToast(msg) {
+    var toast = document.getElementById('toast');
+    document.getElementById('toastMsg').textContent = msg;
+    toast.classList.add('show');
+    setTimeout(function () {
+      toast.classList.remove('show');
+    }, 3000);
+  }
+
+  // XSSエスケープ
+  function escapeHtml(str) {
+    if (!str) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+</script>
