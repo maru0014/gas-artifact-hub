@@ -12,7 +12,12 @@ function loadMain({ email = 'member@example.com', config = {}, sessionError = fa
   }, { get(target, name) {
     return target[name] || ((...args) => { calls.push({ name, args }); return name === 'listVisibleArtifacts' ? [] : {}; });
   }});
-  const output = { setTitle() { return this; }, setXFrameOptionsMode() { return this; }, addMetaTag() { return this; } };
+  const output = {
+    setTitle() { return this; },
+    setFaviconUrl(url) { this.faviconUrl = url; return this; },
+    setXFrameOptionsMode() { return this; },
+    addMetaTag() { return this; }
+  };
   const templates = [];
   const context = vm.createContext({
     console, Store: store,
@@ -47,6 +52,13 @@ test('初期HTMLは本人識別やデータ取得を待たずに返る', () => {
   assert.equal(templates[0].name, 'Upload');
   assert.deepEqual(calls, []);
   assert.equal(templates[0].initialArtifactsJson, 'null');
+});
+
+test('初期HTMLはApps ScriptのHtmlOutputにファビコンを設定する', () => {
+  const { context } = loadMain();
+  const output = context.doGet({ parameter: {} });
+  assert.equal(output.faviconUrl,
+    'https://raw.githubusercontent.com/maru0014/gas-artifact-hub/9addfb4338e749a64b07925647d4d239af3debdf/assets/favicon.ico');
 });
 
 test('不正なURL IDを別の有効IDへ変形しない', () => {

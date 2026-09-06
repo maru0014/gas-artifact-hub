@@ -16,6 +16,8 @@ function doGet(e) {
     template.initialArtifactsJson = 'null';
   }
   return template.evaluate().setTitle('GAS Artifact Hub')
+    // Apps Script はHTMLテンプレート内の favicon link を無視するため、HtmlOutput に設定する。
+    .setFaviconUrl('https://raw.githubusercontent.com/maru0014/gas-artifact-hub/9addfb4338e749a64b07925647d4d239af3debdf/assets/favicon.ico')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.DEFAULT)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
