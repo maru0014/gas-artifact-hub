@@ -77,7 +77,6 @@
 
   var currentArtifacts = [];
   var activeCategory = 'all';
-  var editMenuState = { artifactId: '' };
   var listRequestId_ = 0;
   var searchTimer_;
   var activeViewMode_ = 'grid';
@@ -256,7 +255,6 @@
     var singleRow = [
       '<tr class="skeleton-row">',
       '  <td><div class="skeleton-cell-bar skeleton-shimmer" style="width: 70%;"></div></td>',
-      '  <td><div class="skeleton-cell-bar skeleton-shimmer" style="width: 50%;"></div></td>',
       '  <td><div class="skeleton-cell-bar skeleton-shimmer" style="width: 60px;"></div></td>',
       '  <td><div class="skeleton-cell-bar skeleton-shimmer" style="width: 80px;"></div></td>',
       '  <td><div class="skeleton-cell-bar skeleton-shimmer" style="width: 70px;"></div></td>',
@@ -312,18 +310,10 @@
       }
       if (e.key === 'Escape') {
         closeDrawer();
-        closeEditMenu();
         closeEditModal();
       }
     });
 
-    // 「編集」ドロップダウンメニューの外側クリックで閉じる
-    document.addEventListener('click', function (e) {
-      var menu = document.getElementById('cardEditMenu');
-      if (menu.classList.contains('show') && !menu.contains(e.target)) {
-        closeEditMenu();
-      }
-    });
   }
 
   function setBusyState_(busy) {
@@ -416,7 +406,7 @@
     if (!list || list.length === 0) {
       var emptyMsg = '<div style="padding: 40px; text-align: center; color: var(--text-sub); grid-column: 1/-1;">公開中のアーティファクトはありません。「アーティファクトを共有」から最初のアーティファクトを投稿してみましょう！</div>';
       gridView.innerHTML = emptyMsg;
-      tableBody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 32px; color: var(--text-sub);">アーティファクトがありません</td></tr>';
+      tableBody.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 32px; color: var(--text-sub);">アーティファクトがありません</td></tr>';
       document.getElementById('filteredCount').textContent = '0 件';
       return;
     }
@@ -475,7 +465,7 @@
         `<p class="card-desc is-empty" title="説明はありません">説明はありません</p>`;
 
       var editBtnHtml = isOwner ?
-        `<button type="button" class="btn-action-ghost" onclick="event.stopPropagation(); toggleEditMenu(this, '${escapeHtml(art.artifactId)}')" title="編集" aria-label="編集">編集</button>` : '';
+        `<button type="button" class="btn-action-ghost" onclick="event.stopPropagation(); openEditModal('${escapeHtml(art.artifactId)}')" title="編集" aria-label="編集">編集</button>` : '';
 
       var favLabel = isFav ? 'お気に入りから解除' : 'お気に入りに追加';
       var favIcon = isFav ?
@@ -496,13 +486,6 @@
         </button>
       `;
 
-      var idBadgeHtml = art.title ? `
-        <button type="button" class="card-id-badge" onclick="event.stopPropagation(); copyText_('${escapeHtml(art.artifactId)}', 'UUIDをコピーしました', '次のUUIDをコピーしてください');" title="UUID: ${escapeHtml(art.artifactId)} (クリックしてコピー)" aria-label="UUIDをコピー: ${escapeHtml(art.artifactId)}">
-          <svg class="icon" style="width: 10px; height: 10px;" viewBox="0 0 24 24" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
-          <span>${escapeHtml(art.artifactId.length > 8 ? art.artifactId.slice(0, 8) + '…' : art.artifactId)}</span>
-        </button>
-      ` : '';
-
       // 1. グリッドカード作成
       var card = document.createElement('div');
       card.className = 'card';
@@ -511,8 +494,7 @@
       card.innerHTML = `
         <div class="card-head">
           <div class="card-title-group">
-            <h2 class="card-title">${escapeHtml(art.title || art.artifactId)}</h2>
-            ${idBadgeHtml}
+            <h2 class="card-title">${escapeHtml(art.title || '名称未設定')}</h2>
           </div>
           ${visBadgeHtml}
         </div>
@@ -526,7 +508,7 @@
             ${favBtnHtml}
             ${shareBtnHtml}
             ${editBtnHtml}
-            <a href="${escapeHtml(viewerUrl)}" target="_top" class="btn-action-primary" onclick="event.stopPropagation(); launchViewer(this.href); return false;" aria-label="${escapeHtml(art.title || art.artifactId)}を起動">起動</a>
+            <a href="${escapeHtml(viewerUrl)}" target="_top" class="btn-action-primary" onclick="event.stopPropagation(); launchViewer(this.href); return false;" aria-label="${escapeHtml(art.title || '名称未設定')}を起動">起動</a>
           </div>
         </div>
       `;
@@ -539,10 +521,9 @@
       tr.className = 'table-row';
       tr.innerHTML = `
         <td class="col-name">
-          <div style="font-weight: 600; color: var(--text);">${escapeHtml(art.title || art.artifactId)}</div>
+          <div style="font-weight: 600; color: var(--text);">${escapeHtml(art.title || '名称未設定')}</div>
           <div class="table-desc-text" tabindex="0" aria-label="説明: ${escapeHtml(art.description || '説明なし')}">${escapeHtml(art.description || '説明なし')}</div>
         </td>
-        <td class="col-id" title="${escapeHtml(art.artifactId)}"><code>${escapeHtml(art.artifactId)}</code></td>
         <td class="col-vis">${visBadgeHtml}</td>
         <td class="col-author">${escapeHtml(authorName)}</td>
         <td class="col-updated">${escapeHtml(updatedDate)}</td>
@@ -555,7 +536,7 @@
               <svg class="icon" style="width: 13px; height: 13px;" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
             </button>
             ${editBtnHtml}
-            <a href="${escapeHtml(viewerUrl)}" target="_top" class="btn-action-primary" onclick="launchViewer(this.href); return false;" aria-label="${escapeHtml(art.title || art.artifactId)}を起動">起動</a>
+            <a href="${escapeHtml(viewerUrl)}" target="_top" class="btn-action-primary" onclick="launchViewer(this.href); return false;" aria-label="${escapeHtml(art.title || '名称未設定')}を起動">起動</a>
           </div>
         </td>
       `;
@@ -869,45 +850,6 @@
     copyText_(base + '?a=' + encodeURIComponent(artifactId));
   }
 
-  // 「編集」ドロップダウンメニュー（カード共有1個。位置はクリックされたボタンに合わせてJSで決定）
-  function toggleEditMenu(btnEl, artifactId) {
-    var menu = document.getElementById('cardEditMenu');
-    var wasOpenForSame = menu.classList.contains('show') && editMenuState.artifactId === artifactId;
-    closeEditMenu();
-    if (wasOpenForSame) return;
-
-    editMenuState.artifactId = artifactId;
-    var rect = btnEl.getBoundingClientRect();
-    var menuWidth = 220;
-    var estHeight = 120;
-    var left = Math.min(Math.max(8, rect.right - menuWidth), window.innerWidth - menuWidth - 8);
-    var top = rect.bottom + 6;
-    if (top + estHeight > window.innerHeight) {
-      top = rect.top - estHeight - 6;
-    }
-    menu.style.left = left + 'px';
-    menu.style.top = top + 'px';
-    menu.classList.add('show');
-  }
-
-  function closeEditMenu() {
-    document.getElementById('cardEditMenu').classList.remove('show');
-  }
-
-  function handleEditMenuAction(action) {
-    var artifactId = editMenuState.artifactId;
-    closeEditMenu();
-    if (!artifactId) return;
-
-    if (action === 'metadata') {
-      openEditModal(artifactId);
-    } else if (action === 'version') {
-      openDrawer(true, artifactId);
-    } else if (action === 'delete') {
-      confirmDeleteArtifact(artifactId);
-    }
-  }
-
   // アーティファクト設定編集モーダル（アーティファクト名・説明・用途・公開範囲）
   // ACLの追加・権限変更・削除は都度サーバーへ送らず、モーダル内でのみ保持する
   // 下書き（editAclDraft.staged）に反映し、「保存」クリック時にまとめて反映する
@@ -917,7 +859,9 @@
     if (editAclDraft.saving) return;
     const art = currentArtifacts.find(a => a.artifactId === artifactId);
     if (!art || !art.isEditor) return;
-    editMenuState.artifactId = artifactId;
+    document.getElementById('edit-artifact-id').textContent = artifactId;
+    document.getElementById('edit-version-file').value = '';
+    document.getElementById('edit-version-status').textContent = '';
     const requestId = ++editAclDraft.requestId;
     editAclDraft.artifactId = artifactId;
     editAclDraft.custodian = String(art.custodian || '').toLowerCase();
@@ -1085,25 +1029,50 @@
       .apiSaveArtifactSettings(artifactId, title, description, visibility, acls);
   }
 
-  // 一覧からの削除（一覧ページ内で完結するため画面遷移は不要）
-  function confirmDeleteArtifact(artifactId) {
-    if (!confirm('このアーティファクトを無効化（削除）しますか？ 社員がアクセスできなくなります。')) {
-      return;
+  // 編集画面内で更新を完結させ、設定の入力内容は保持する。
+  function uploadEditVersion() {
+    if (editAclDraft.saving) return;
+    const file = document.getElementById('edit-version-file').files[0];
+    const status = document.getElementById('edit-version-status');
+    if (!file || !/\.html?$/i.test(file.name)) { status.textContent = 'HTMLファイル (.html / .htm) を選択してください'; return; }
+    if (file.size > appConfig.maxHtmlSizeKb * 1024) { status.textContent = 'ファイルサイズが上限を超えています'; return; }
+    const artifactId = editAclDraft.artifactId;
+    editAclDraft.saving = true;
+    setDialogDisabled_('editMetadataModal', true);
+    status.textContent = 'ファイルを読み込み、更新しています...';
+    function finish(error) {
+      editAclDraft.saving = false;
+      setDialogDisabled_('editMetadataModal', false);
+      document.getElementById('btn-save-edit-metadata').disabled = !editAclDraft.loaded;
+      status.textContent = error ? '更新失敗: ' + error : 'バージョンを更新しました';
+      if (!error) { document.getElementById('edit-version-file').value = ''; loadArtifactList(); }
     }
+    const reader = new FileReader();
+    reader.onerror = reader.onabort = () => finish('ファイルを読み込めませんでした。再選択してください');
+    reader.onload = () => {
+      if (!reader.result) { finish('空のHTMLファイルは更新できません'); return; }
+      google.script.run.withSuccessHandler(res => finish(res && res.ok ? '' : (res && res.error) || '応答を取得できませんでした'))
+        .withFailureHandler(error => finish(error.message)).apiUploadVersion(artifactId, reader.result);
+    };
+    reader.readAsText(file);
+  }
 
-    google.script.run
-      .withSuccessHandler(function (res) {
-        if (!res.ok) {
-          showToast('削除失敗: ' + res.error);
-          return;
-        }
-        showToast('アーティファクトを無効化しました');
-        loadArtifactList();
-      })
-      .withFailureHandler(function (err) {
-        showToast('通信エラー: ' + err.message);
-      })
-      .apiDeleteArtifact(artifactId);
+  function confirmDeleteArtifact(artifactId) {
+    if (editAclDraft.saving || artifactId !== editAclDraft.artifactId) return;
+    if (!confirm('このアーティファクトを無効化（削除）しますか？ 社員がアクセスできなくなります。編集中の設定は保存されません。')) return;
+    editAclDraft.saving = true;
+    setDialogDisabled_('editMetadataModal', true);
+    function finish(error) {
+      editAclDraft.saving = false;
+      setDialogDisabled_('editMetadataModal', false);
+      document.getElementById('btn-save-edit-metadata').disabled = !editAclDraft.loaded;
+      if (error) { document.getElementById('editMetadataModal-status').textContent = '削除失敗: ' + error; return; }
+      closeEditModal();
+      showToast('アーティファクトを無効化しました');
+      loadArtifactList();
+    }
+    google.script.run.withSuccessHandler(res => finish(res && res.ok ? '' : (res && res.error) || '応答を取得できませんでした'))
+      .withFailureHandler(error => finish(error.message)).apiDeleteArtifact(artifactId);
   }
 
   // トースト

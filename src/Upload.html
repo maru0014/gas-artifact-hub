@@ -31,7 +31,7 @@
       <div class="nav-label">ナビゲーション</div>
       <button type="button" class="nav-item active" onclick="setCategoryFilter('all', this)" title="すべてのアーティファクト" aria-label="すべてのアーティファクト">
         <svg class="icon" viewBox="0 0 24 24"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></svg>
-        <span class="nav-label-text">すべてのアーティファクト</span>
+        <span class="nav-label-text">すべて</span>
         <span class="nav-badge" id="badgeAllCount">0</span>
       </button>
       <button type="button" class="nav-item" onclick="setCategoryFilter('fav', this)" title="お気に入り" aria-label="お気に入り">
@@ -269,7 +269,6 @@
           <thead>
             <tr>
               <th class="th-name">アーティファクト名</th>
-              <th class="th-id">識別子 (ID)</th>
               <th class="th-vis">公開範囲</th>
               <th class="th-author">作成者</th>
               <th class="th-updated">最終更新</th>
@@ -384,24 +383,17 @@
     </div>
   </aside>
 
-  <!-- カード「編集」ドロップダウンメニュー（共有1個。JSでボタン位置に合わせて表示） -->
-  <div class="dropdown-menu" id="cardEditMenu">
-    <button type="button" class="dropdown-item" onclick="handleEditMenuAction('metadata')">アーティファクト名・説明・公開範囲を編集</button>
-    <button type="button" class="dropdown-item" onclick="handleEditMenuAction('version')">新しいバージョンを投稿</button>
-    <div class="dropdown-divider"></div>
-    <button type="button" class="dropdown-item dropdown-item-danger" onclick="handleEditMenuAction('delete')">削除</button>
-  </div>
-
   <!-- アーティファクト設定編集モーダル（アーティファクト名・説明・用途・公開範囲） -->
   <div class="modal-backdrop" id="editMetadataModal" role="dialog" aria-modal="true" aria-labelledby="editMetadataModalTitle">
     <div class="modal-box">
       <div class="modal-head">
-        <span id="editMetadataModalTitle">アーティファクトの設定を編集</span>
+        <span id="editMetadataModalTitle">アーティファクトを編集</span>
         <button class="btn-close-sm" data-dialog-close onclick="closeEditModal()" aria-label="閉じる">
           <svg class="icon" viewBox="0 0 24 24"><line x1="18" x2="6" y1="6" y2="18"/><line x1="6" x2="18" y1="6" y2="18"/></svg>
         </button>
       </div>
       <div class="modal-body">
+        <div class="edit-identity"><span>UUID</span><code id="edit-artifact-id"></code><button type="button" class="btn-action-ghost" id="btn-copy-edit-id" onclick="copyText_(editAclDraft.artifactId, 'UUIDをコピーしました', '次のUUIDをコピーしてください')">コピー</button></div>
         <p id="editMetadataModal-status" class="settings-status" role="status"></p>
         <div class="form-field">
           <label class="form-label" for="edit-title-input">アーティファクト表示名 <span style="color: #ef4444;">*</span></label>
@@ -431,10 +423,23 @@
             <button class="btn-action-ghost" onclick="addAclMember()">追加</button>
           </div>
         </div>
+        <section class="edit-section" aria-labelledby="edit-version-title">
+          <h2 id="edit-version-title">バージョン更新</h2>
+          <p class="settings-status">新しいHTMLファイルで内容を更新します。外部通信やダウンロードを行う場合があります。静的検査は安全性を保証しません。名前・説明・公開範囲は下の「設定を保存」で保存してください。</p>
+          <label class="form-label" for="edit-version-file">新しいHTMLファイル</label>
+          <input type="file" class="form-input" id="edit-version-file" accept=".html,.htm">
+          <button type="button" class="btn-action-ghost" id="btn-edit-version" onclick="uploadEditVersion()">バージョンを更新</button>
+          <p id="edit-version-status" class="settings-status" role="status"></p>
+        </section>
+        <section class="edit-section" aria-labelledby="edit-delete-title">
+          <h2 id="edit-delete-title">削除</h2>
+          <p class="settings-status">削除すると、このアーティファクトにアクセスできなくなります。</p>
+          <button type="button" class="btn-action-ghost edit-delete-button" id="btn-edit-delete" onclick="confirmDeleteArtifact(editAclDraft.artifactId)">アーティファクトを削除</button>
+        </section>
       </div>
       <div class="modal-foot">
         <button class="btn-action-ghost" data-dialog-close onclick="closeEditModal()">キャンセル</button>
-        <button class="btn-action-primary" id="btn-save-edit-metadata" onclick="saveEditMetadata()">保存</button>
+        <button class="btn-action-primary" id="btn-save-edit-metadata" onclick="saveEditMetadata()">設定を保存</button>
       </div>
     </div>
   </div>

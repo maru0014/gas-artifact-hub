@@ -92,28 +92,26 @@ test('後から選択したファイルの読込完了まで投稿を止め古�
   await expect.poll(() => page.evaluate(() => window.__GAS_TEST__.calls.filter(call => call.method === 'apiUploadArtifact').map(call => call.args[0].htmlContent))).toEqual(['<p>LATEST FILE</p>']);
 });
 
-test('更新drawerにドロップしても新規投稿へ切り替わらない', async ({ page }) => {
+test('編集画面でバージョンを更新しても編集中の設定を保持する', async ({ page }) => {
   await prepare(page);
   await loadedList(page);
   await page.locator('#gridView .card').filter({ hasText: '売上ダッシュボード' }).getByRole('button', { name: '編集', exact: true }).click();
-  await page.getByText('新しいバージョンを投稿', { exact: true }).click();
-  await expect(page.locator('#drawer')).toHaveClass(/show/);
-  const transfer = await page.evaluateHandle(() => {
-    const data = new DataTransfer();
-    data.items.add(new File(['<p>UPDATED VERSION</p>'], 'update.html', { type: 'text/html' }));
-    return data;
-  });
-  await page.locator('#drawer-dropzone').dispatchEvent('drop', { dataTransfer: transfer });
-  await expect(page.locator('#btn-submit-upload')).toBeEnabled();
-  await page.locator('#btn-submit-upload').click();
+  await expect(page.locator('#btn-save-edit-metadata')).toBeEnabled();
+  await page.locator('#edit-title-input').fill('編集中のタイトル');
+  await page.locator('#edit-version-file').setInputFiles({ name: 'update.html', mimeType: 'text/html', buffer: Buffer.from('<p>UPDATED VERSION</p>') });
+  await page.locator('#btn-edit-version').click();
+  await expect(page.locator('#edit-version-status')).toHaveText('バージョンを更新しました');
+  await expect(page.locator('#edit-title-input')).toHaveValue('編集中のタイトル');
+  await expect(page.locator('#editMetadataModal')).toHaveClass(/show/);
   await expect.poll(() => page.evaluate(() => window.__GAS_TEST__.calls.filter(call => call.method.startsWith('apiUpload')))).toEqual([{ method: 'apiUploadVersion', args: ['demo-artifact', '<p>UPDATED VERSION</p>'] }]);
+  await page.locator('#btn-save-edit-metadata').click();
+  await expect.poll(() => page.evaluate(() => window.__GAS_TEST__.calls.find(call => call.method === 'apiSaveArtifactSettings')?.args[1])).toBe('編集中のタイトル');
 });
 
 test('ACL取得失敗時には空の権限を保存せず編集モーダルに残す', async ({ page }) => {
   await prepare(page, { fail: { apiGetAcl: '権限情報を取得できません' } });
   await loadedList(page);
   await page.locator('#gridView .card').filter({ hasText: '売上ダッシュボード' }).getByRole('button', { name: '編集', exact: true }).click();
-  await page.getByRole('button', { name: 'アーティファクト名・説明・公開範囲を編集', exact: true }).click();
   await expect(page.locator('#editMetadataModal-status')).toContainText('メンバー取得に失敗しました');
   await expect(page.locator('#editMetadataModal')).toHaveClass(/show/);
   await expect(page.locator('#btn-save-edit-metadata')).toBeDisabled();
@@ -278,11 +276,13 @@ test('セキュリティ注意表示を折りたたみ・再表示でき状態�
   await expect(banner).not.toHaveClass(/is-collapsed/);
   await expect(toggleBtn).toHaveAttribute('aria-expanded', 'true');
   await expect(page.locator('#riskNoticeText')).toBeVisible();
+  const expandedHeight = (await banner.boundingBox()).height;
   // 折りたたみクリック
   await toggleBtn.click();
   await expect(banner).toHaveClass(/is-collapsed/);
   await expect(toggleBtn).toHaveAttribute('aria-expanded', 'false');
   await expect(page.locator('#riskNoticeText')).not.toBeVisible();
+  await expect.poll(async () => (await banner.boundingBox()).height).toBeLessThan(expandedHeight * 0.7);
   // ページ再読み込み後も折りたたみ状態が保持されていること
   await page.reload();
   await expect(page.locator('#riskNoticeBanner')).toHaveClass(/is-collapsed/);
@@ -338,8 +338,11 @@ test('説明の有無にかかわらずカードの説明文領域の高さが�
 test('UUIDコピー通知と利用者別表示設定を正しく扱う', async ({ page }) => {
   await prepare(page);
   await loadedList(page);
-  await page.locator('#gridView .card-id-badge').first().click();
+  await expect(page.locator('#gridView .card-id-badge')).toHaveCount(0);
+  await page.locator('#gridView .card').first().getByRole('button', { name: '編集', exact: true }).click();
+  await page.locator('#btn-copy-edit-id').click();
   await expect(page.locator('#toastMsg')).toContainText('UUIDをコピーしました');
+  await page.keyboard.press('Escape');
 
   await page.locator('#btnList').click();
   const keys = await page.evaluate(() => Object.keys(localStorage));
@@ -398,3 +401,31 @@ test('1280px画面の200%ズーム相当幅でも主要操作が画面内に収�
     expect(box.x + box.width).toBeLessThanOrEqual(641);
   }
 });
+
+for (const width of [390, 1280]) {
+  test(`統合編集の表示・削除とナビ表示 ${width}px`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 900 });
+    await prepare(page, { fail: { apiDeleteArtifact: '削除テスト失敗' } });
+    await loadedList(page);
+    const nav = page.locator('.nav-label-text').first();
+    await expect(nav).toHaveText('すべて');
+    expect(await nav.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+    await page.locator('#btnList').click();
+    await expect(page.locator('.col-id, .th-id')).toHaveCount(0);
+    await page.locator('#tableBody tr').first().getByRole('button', { name: '編集', exact: true }).click();
+    await expect(page.locator('#btn-save-edit-metadata')).toBeEnabled();
+    await expect(page.locator('#edit-artifact-id')).toHaveText('demo-artifact');
+    await page.locator('#edit-title-input').fill('保持する名前');
+    await page.screenshot({ path: testInfo.outputPath('unified-edit.png'), fullPage: true });
+    expect(await page.locator('.modal-box').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+    page.once('dialog', dialog => dialog.dismiss());
+    await page.locator('#btn-edit-delete').click();
+    expect(await page.evaluate(() => window.__GAS_TEST__.calls.some(call => call.method === 'apiDeleteArtifact'))).toBe(false);
+    page.once('dialog', dialog => dialog.accept());
+    await page.locator('#btn-edit-delete').click();
+    await expect(page.locator('#editMetadataModal-status')).toContainText('削除失敗');
+    await expect(page.locator('#edit-title-input')).toHaveValue('保持する名前');
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#editMetadataModal')).not.toHaveClass(/show/);
+  });
+}
