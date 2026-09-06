@@ -1,0 +1,1666 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CSV突合ツール (CSV Matcher & Reconciler) - GAS Artifact Hub</title>
+  <style>
+    /* ==========================================================================
+       gas-artifact-hub Design Tokens (Enterprise Hybrid)
+       ========================================================================== */
+    :root {
+      --bg: #f8fafc;
+      --surface: #ffffff;
+      --surface-sub: #f1f5f9;
+      --surface-hover: #e2e8f0;
+      --border: #e2e8f0;
+      --border-strong: #cbd5e1;
+      --text: #0f172a;
+      --text-muted: #475569;
+      --text-sub: #64748b;
+      --primary: #1e293b;
+      --primary-hover: #0f172a;
+      --accent: #2563eb;
+      --accent-hover: #1d4ed8;
+      --accent-subtle: #eff6ff;
+
+      /* Status Badges & Accents */
+      --badge-safe-bg: #f0fdf4;
+      --badge-safe-text: #15803d;
+      --badge-safe-border: #bbf7d0;
+
+      --badge-warn-bg: #fffbeb;
+      --badge-warn-text: #b45309;
+      --badge-warn-border: #fde68a;
+
+      --badge-danger-bg: #fef2f2;
+      --badge-danger-text: #b91c1c;
+      --badge-danger-border: #fecaca;
+
+      --badge-info-bg: #eff6ff;
+      --badge-info-text: #1d4ed8;
+      --badge-info-border: #bfdbfe;
+
+      --badge-purple-bg: #faf5ff;
+      --badge-purple-text: #7e22ce;
+      --badge-purple-border: #e9d5ff;
+
+      --diff-highlight-bg: #fff7ed;
+      --diff-highlight-border: #fdba74;
+      --diff-highlight-text: #c2410c;
+
+      --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+      --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+      --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -4px rgba(0, 0, 0, 0.03);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0b0f19;
+        --surface: #111827;
+        --surface-sub: #1f2937;
+        --surface-hover: #374151;
+        --border: #1f2937;
+        --border-strong: #374151;
+        --text: #f9fafb;
+        --text-muted: #9ca3af;
+        --text-sub: #6b7280;
+        --primary: #f9fafb;
+        --primary-hover: #ffffff;
+        --accent: #3b82f6;
+        --accent-hover: #60a5fa;
+        --accent-subtle: rgba(59, 130, 246, 0.1);
+
+        --badge-safe-bg: rgba(16, 185, 129, 0.1);
+        --badge-safe-text: #34d399;
+        --badge-safe-border: rgba(16, 185, 129, 0.25);
+
+        --badge-warn-bg: rgba(245, 158, 11, 0.1);
+        --badge-warn-text: #fbbf24;
+        --badge-warn-border: rgba(245, 158, 11, 0.25);
+
+        --badge-danger-bg: rgba(239, 68, 68, 0.1);
+        --badge-danger-text: #f87171;
+        --badge-danger-border: rgba(239, 68, 68, 0.25);
+
+        --badge-info-bg: rgba(59, 130, 246, 0.1);
+        --badge-info-text: #60a5fa;
+        --badge-info-border: rgba(59, 130, 246, 0.25);
+
+        --badge-purple-bg: rgba(168, 85, 247, 0.1);
+        --badge-purple-text: #c084fc;
+        --badge-purple-border: rgba(168, 85, 247, 0.25);
+
+        --diff-highlight-bg: rgba(234, 88, 12, 0.15);
+        --diff-highlight-border: rgba(251, 146, 60, 0.35);
+        --diff-highlight-text: #fdba74;
+
+        --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
+        --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.4);
+        --shadow-lg: 0 10px 25px -3px rgba(0, 0, 0, 0.6);
+      }
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      font-size: 14px;
+      padding: 24px 20px 48px;
+    }
+
+    .container {
+      max-width: 1180px;
+      margin: 0 auto;
+    }
+
+    /* Common SVG Icons */
+    .icon {
+      width: 16px;
+      height: 16px;
+      stroke-width: 1.75;
+      stroke: currentColor;
+      fill: none;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      vertical-align: middle;
+      flex-shrink: 0;
+    }
+    .icon-lg { width: 20px; height: 20px; }
+    .icon-xl { width: 26px; height: 26px; }
+
+    /* Top Header */
+    header.tool-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 24px;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .header-title-group h1 {
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .header-title-group p {
+      color: var(--text-sub);
+      font-size: 13px;
+      margin-top: 4px;
+    }
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    /* Tag & Badges */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      line-height: 1.4;
+      border: 1px solid transparent;
+      white-space: nowrap;
+    }
+    .badge-safe {
+      background: var(--badge-safe-bg);
+      color: var(--badge-safe-text);
+      border-color: var(--badge-safe-border);
+    }
+    .badge-warn {
+      background: var(--badge-warn-bg);
+      color: var(--badge-warn-text);
+      border-color: var(--badge-warn-border);
+    }
+    .badge-danger {
+      background: var(--badge-danger-bg);
+      color: var(--badge-danger-text);
+      border-color: var(--badge-danger-border);
+    }
+    .badge-info {
+      background: var(--badge-info-bg);
+      color: var(--badge-info-text);
+      border-color: var(--badge-info-border);
+    }
+    .badge-purple {
+      background: var(--badge-purple-bg);
+      color: var(--badge-purple-text);
+      border-color: var(--badge-purple-border);
+    }
+
+    /* Cards */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 20px;
+      margin-bottom: 20px;
+      box-shadow: var(--shadow-sm);
+    }
+    .card-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    /* Buttons */
+    .btn {
+      height: 36px;
+      padding: 0 14px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: all 0.15s ease;
+      user-select: none;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+    }
+    .btn:hover:not(:disabled) {
+      background: var(--surface-sub);
+      border-color: var(--border-strong);
+    }
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .btn-primary {
+      background: var(--accent);
+      color: #ffffff;
+      border-color: var(--accent);
+      font-weight: 600;
+    }
+    .btn-primary:hover:not(:disabled) {
+      background: var(--accent-hover);
+      border-color: var(--accent-hover);
+      color: #ffffff;
+    }
+    .btn-dark {
+      background: var(--primary);
+      color: var(--surface);
+      border-color: var(--primary);
+      font-weight: 600;
+    }
+    .btn-dark:hover:not(:disabled) {
+      opacity: 0.9;
+    }
+    .btn-sm {
+      height: 28px;
+      padding: 0 10px;
+      font-size: 12px;
+      border-radius: 4px;
+    }
+
+    /* Dual Dropzone Layout */
+    .dual-upload-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+    @media (max-width: 768px) {
+      .dual-upload-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .dropzone-box {
+      border: 2px dashed var(--border-strong);
+      border-radius: 8px;
+      padding: 20px;
+      background: var(--surface-sub);
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 140px;
+    }
+    .dropzone-box:hover, .dropzone-box.dragover {
+      border-color: var(--accent);
+      background: var(--accent-subtle);
+    }
+    .dropzone-box.has-file {
+      border-style: solid;
+      border-color: var(--badge-safe-border);
+      background: var(--surface);
+    }
+    .dropzone-icon {
+      color: var(--text-sub);
+      margin-bottom: 8px;
+    }
+    .dropzone-title {
+      font-weight: 600;
+      font-size: 13px;
+      color: var(--text);
+      margin-bottom: 2px;
+    }
+    .dropzone-desc {
+      font-size: 12px;
+      color: var(--text-sub);
+      margin-bottom: 10px;
+    }
+    .encoding-select-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 8px;
+      font-size: 11px;
+      color: var(--text-sub);
+    }
+    .encoding-select {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 2px 6px;
+      font-size: 11px;
+      color: var(--text);
+    }
+
+    /* Configuration Panel */
+    .config-panel {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 16px;
+      background: var(--surface-sub);
+      border-radius: 8px;
+      padding: 16px;
+      margin-top: 16px;
+      border: 1px solid var(--border);
+    }
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .form-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .form-select, .form-input {
+      height: 34px;
+      background: var(--surface);
+      border: 1px solid var(--border-strong);
+      border-radius: 6px;
+      padding: 0 10px;
+      font-size: 13px;
+      color: var(--text);
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    .form-select:focus, .form-input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+    }
+    .checkbox-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--text-muted);
+      cursor: pointer;
+      user-select: none;
+      margin-top: 6px;
+    }
+    .checkbox-row input {
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+
+    /* Summary KPI Grid */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px 16px;
+      box-shadow: var(--shadow-sm);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+    .stat-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-sub);
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .stat-value {
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      font-variant-numeric: tabular-nums;
+      color: var(--text);
+    }
+    .stat-subtext {
+      font-size: 11px;
+      color: var(--text-sub);
+      margin-top: 4px;
+    }
+
+    /* Match rate progress */
+    .rate-bar-container {
+      margin-top: 12px;
+      height: 6px;
+      border-radius: 3px;
+      background: var(--surface-sub);
+      overflow: hidden;
+      display: flex;
+    }
+    .rate-bar-matched {
+      background: #10b981;
+      height: 100%;
+      transition: width 0.3s ease;
+    }
+    .rate-bar-diff {
+      background: #f59e0b;
+      height: 100%;
+      transition: width 0.3s ease;
+    }
+    .rate-bar-a {
+      background: #3b82f6;
+      height: 100%;
+      transition: width 0.3s ease;
+    }
+    .rate-bar-b {
+      background: #a855f7;
+      height: 100%;
+      transition: width 0.3s ease;
+    }
+
+    /* Toolbar & Segmented Control */
+    .view-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+    }
+    .segmented-control {
+      display: inline-flex;
+      background: var(--surface-sub);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 2px;
+      gap: 2px;
+      overflow-x: auto;
+      max-width: 100%;
+    }
+    .segment-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-sub);
+      padding: 5px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      font-weight: 500;
+      transition: all 0.15s;
+      white-space: nowrap;
+    }
+    .segment-btn:hover {
+      color: var(--text);
+    }
+    .segment-btn.active {
+      background: var(--surface);
+      color: var(--text);
+      box-shadow: var(--shadow-sm);
+      font-weight: 600;
+    }
+    .segment-badge {
+      font-size: 10px;
+      padding: 1px 5px;
+      border-radius: 9999px;
+      background: var(--border);
+      color: var(--text-muted);
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .segment-btn.active .segment-badge {
+      background: var(--primary);
+      color: var(--surface);
+    }
+
+    /* Search Box */
+    .search-box {
+      position: relative;
+      flex: 1;
+      min-width: 200px;
+      max-width: 320px;
+    }
+    .search-input {
+      width: 100%;
+      height: 34px;
+      background: var(--surface);
+      border: 1px solid var(--border-strong);
+      border-radius: 6px;
+      padding: 0 64px 0 32px;
+      font-size: 13px;
+      color: var(--text);
+      outline: none;
+      transition: all 0.15s;
+    }
+    .search-input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+    }
+    .search-icon-box {
+      position: absolute;
+      left: 9px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--text-sub);
+      pointer-events: none;
+      display: flex;
+    }
+    .search-kbd {
+      position: absolute;
+      right: 8px;
+      top: 50%;
+      transform: translateY(-50%);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      padding: 2px 4px;
+      border-radius: 4px;
+      background: var(--surface-sub);
+      border: 1px solid var(--border-strong);
+      color: var(--text-sub);
+      pointer-events: none;
+    }
+
+    /* Table Styles */
+    .table-card {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface);
+      box-shadow: var(--shadow-sm);
+      overflow: hidden;
+    }
+    .table-container {
+      overflow-x: auto;
+      max-height: 520px;
+    }
+    table.data-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      text-align: left;
+    }
+    table.data-table th, table.data-table td {
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    table.data-table th {
+      position: sticky;
+      top: 0;
+      background: var(--surface-sub);
+      font-weight: 600;
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--border-strong);
+      z-index: 2;
+      font-size: 12px;
+    }
+    table.data-table tr:hover td {
+      background: var(--surface-sub);
+    }
+
+    /* Diff cell visualization */
+    .diff-cell {
+      background: var(--diff-highlight-bg) !important;
+      color: var(--diff-highlight-text);
+      font-weight: 500;
+      border-radius: 4px;
+    }
+    .diff-val-a {
+      text-decoration: line-through;
+      color: var(--text-sub);
+      font-size: 11px;
+      margin-right: 6px;
+    }
+    .diff-val-b {
+      font-weight: 600;
+    }
+
+    /* Pagination */
+    .pagination-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 16px;
+      border-top: 1px solid var(--border);
+      background: var(--surface);
+      font-size: 12px;
+      color: var(--text-sub);
+    }
+    .pagination-controls {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    /* Empty state */
+    .empty-state {
+      padding: 48px 24px;
+      text-align: center;
+      color: var(--text-sub);
+    }
+    .empty-state svg {
+      margin-bottom: 12px;
+      color: var(--text-sub);
+      opacity: 0.6;
+    }
+    .empty-title {
+      font-weight: 600;
+      font-size: 14px;
+      color: var(--text);
+      margin-bottom: 4px;
+    }
+    .empty-desc {
+      font-size: 12px;
+    }
+
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <!-- Header -->
+    <header class="tool-header">
+      <div class="header-title-group">
+        <h1>
+          <svg class="icon-lg" viewBox="0 0 24 24">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+            <line x1="9" y1="15" x2="15" y2="15"/>
+            <line x1="9" y1="11" x2="15" y2="11"/>
+          </svg>
+          CSV突合ツール
+          <span class="badge badge-safe">外部通信ゼロ</span>
+          <span class="badge badge-info">完全クライアント実行</span>
+        </h1>
+        <p>2つのCSVデータをキー列で瞬時に照合し、差異・未登録データを視覚的に特定します。</p>
+      </div>
+      <div class="header-actions">
+        <button type="button" class="btn btn-sm" id="btn-load-sample" title="テスト用サンプルデータを即座に展開します">
+          <svg class="icon" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          サンプルデータを試す
+        </button>
+        <button type="button" class="btn btn-sm" id="btn-reset" title="入力をリセット">
+          <svg class="icon" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+          リセット
+        </button>
+      </div>
+    </header>
+
+    <!-- Upload & Dropzone Section -->
+    <div class="card">
+      <div class="card-title">
+        <span>CSVファイルの読み込み</span>
+        <span style="font-size: 12px; font-weight: normal; color: var(--text-sub);">
+          ドラッグ＆ドロップまたはクリックでファイルを選択
+        </span>
+      </div>
+
+      <div class="dual-upload-grid">
+        <!-- Dropzone A -->
+        <div class="dropzone-box" id="dropzone-a" role="button" tabindex="0" aria-label="基準CSVファイルAを選択">
+          <input type="file" id="file-input-a" accept=".csv,text/csv,.txt" class="hidden">
+          <div class="dropzone-icon">
+            <svg class="icon-xl" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          </div>
+          <div class="dropzone-title" id="title-file-a">基準データ (CSV A)</div>
+          <div class="dropzone-desc" id="desc-file-a">クリックまたはファイルをドロップ</div>
+          <div class="encoding-select-row" onclick="event.stopPropagation()">
+            <label for="encoding-a">文字コード:</label>
+            <select id="encoding-a" class="encoding-select">
+              <option value="utf-8" selected>UTF-8</option>
+              <option value="shift-jis">Shift-JIS (Windows)</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Dropzone B -->
+        <div class="dropzone-box" id="dropzone-b" role="button" tabindex="0" aria-label="比較CSVファイルBを選択">
+          <input type="file" id="file-input-b" accept=".csv,text/csv,.txt" class="hidden">
+          <div class="dropzone-icon">
+            <svg class="icon-xl" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          </div>
+          <div class="dropzone-title" id="title-file-b">比較データ (CSV B)</div>
+          <div class="dropzone-desc" id="desc-file-b">クリックまたはファイルをドロップ</div>
+          <div class="encoding-select-row" onclick="event.stopPropagation()">
+            <label for="encoding-b">文字コード:</label>
+            <select id="encoding-b" class="encoding-select">
+              <option value="utf-8" selected>UTF-8</option>
+              <option value="shift-jis">Shift-JIS (Windows)</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Config Panel (Hidden until files loaded) -->
+      <div id="config-panel" class="config-panel hidden">
+        <div class="form-group">
+          <label class="form-label" for="select-key-a">
+            <svg class="icon" viewBox="0 0 24 24"><circle cx="7.5" cy="15.5" r="4.5"/><path d="m21 3-9.5 9.5"/><path d="m15.5 7.5 3 3"/></svg>
+            基準CSV A の突合キー列
+          </label>
+          <select id="select-key-a" class="form-select"></select>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="select-key-b">
+            <svg class="icon" viewBox="0 0 24 24"><circle cx="7.5" cy="15.5" r="4.5"/><path d="m21 3-9.5 9.5"/><path d="m15.5 7.5 3 3"/></svg>
+            比較CSV B の突合キー列
+          </label>
+          <select id="select-key-b" class="form-select"></select>
+        </div>
+
+        <div class="form-group" style="justify-content: flex-end;">
+          <div class="form-label">突合オプション</div>
+          <label class="checkbox-row">
+            <input type="checkbox" id="opt-trim" checked>
+            前後の空白（スペース・改行）を無視する
+          </label>
+          <label class="checkbox-row">
+            <input type="checkbox" id="opt-ignore-case">
+            英字の大小（A/a）を同一視する
+          </label>
+        </div>
+
+        <div class="form-group" style="justify-content: flex-end;">
+          <button type="button" class="btn btn-primary" id="btn-run-match" style="width: 100%;">
+            <svg class="icon" viewBox="0 0 24 24"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+            突合を実行する
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Results Section -->
+    <div id="results-section" class="hidden">
+      <!-- KPI Stats Grid -->
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-label">
+            <span>完全一致</span>
+            <span class="badge badge-safe">Match</span>
+          </div>
+          <div class="stat-value" id="stat-match-count">0</div>
+          <div class="stat-subtext" id="stat-match-sub">キー・全列値が一致</div>
+        </div>
+
+        <div class="stat-card">
+          <div class="stat-label">
+            <span>差異あり</span>
+            <span class="badge badge-warn">Diff</span>
+          </div>
+          <div class="stat-value" id="stat-diff-count" style="color: var(--badge-warn-text);">0</div>
+          <div class="stat-subtext" id="stat-diff-sub">値に相違あり</div>
+        </div>
+
+        <div class="stat-card">
+          <div class="stat-label">
+            <span>Aのみ存在</span>
+            <span class="badge badge-info">Only A</span>
+          </div>
+          <div class="stat-value" id="stat-only-a-count">0</div>
+          <div class="stat-subtext">Bにキーなし</div>
+        </div>
+
+        <div class="stat-card">
+          <div class="stat-label">
+            <span>Bのみ存在</span>
+            <span class="badge badge-purple">Only B</span>
+          </div>
+          <div class="stat-value" id="stat-only-b-count">0</div>
+          <div class="stat-subtext">Aにキーなし</div>
+        </div>
+
+        <div class="stat-card">
+          <div class="stat-label">
+            <span>突合一致率</span>
+            <span class="badge badge-safe" id="stat-rate-badge">0%</span>
+          </div>
+          <div class="stat-value" id="stat-match-rate">0%</div>
+          <div class="rate-bar-container">
+            <div id="bar-match" class="rate-bar-matched" style="width: 0%;"></div>
+            <div id="bar-diff" class="rate-bar-diff" style="width: 0%;"></div>
+            <div id="bar-a" class="rate-bar-a" style="width: 0%;"></div>
+            <div id="bar-b" class="rate-bar-b" style="width: 0%;"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Toolbar -->
+      <div class="view-toolbar">
+        <div class="segmented-control" role="tablist">
+          <button type="button" class="segment-btn active" data-tab="all" role="tab">
+            すべて
+            <span class="segment-badge" id="tab-count-all">0</span>
+          </button>
+          <button type="button" class="segment-btn" data-tab="diff" role="tab">
+            差異あり
+            <span class="segment-badge" id="tab-count-diff">0</span>
+          </button>
+          <button type="button" class="segment-btn" data-tab="match" role="tab">
+            完全一致
+            <span class="segment-badge" id="tab-count-match">0</span>
+          </button>
+          <button type="button" class="segment-btn" data-tab="only_a" role="tab">
+            Aのみ
+            <span class="segment-badge" id="tab-count-only-a">0</span>
+          </button>
+          <button type="button" class="segment-btn" data-tab="only_b" role="tab">
+            Bのみ
+            <span class="segment-badge" id="tab-count-only-b">0</span>
+          </button>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+          <div class="search-box">
+            <div class="search-icon-box">
+              <svg class="icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" x2="16.65" y1="21" y2="16.65"/></svg>
+            </div>
+            <input type="text" id="table-search-input" class="search-input" placeholder="結果内を検索..." aria-label="結果内を検索">
+            <span class="search-kbd">Ctrl K</span>
+          </div>
+
+          <button type="button" class="btn btn-dark" id="btn-export-csv" title="突合結果をExcel対応のUTF-8 BOM付きCSVでダウンロード">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            突合結果CSVを出力
+          </button>
+        </div>
+      </div>
+
+      <!-- Data Table Card -->
+      <div class="table-card">
+        <div class="table-container">
+          <table class="data-table" id="reconcile-table">
+            <thead id="table-head"></thead>
+            <tbody id="table-body"></tbody>
+          </table>
+          <div id="table-empty-msg" class="empty-state hidden">
+            <svg class="icon-xl" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+            <div class="empty-title">表示対象のデータがありません</div>
+            <div class="empty-desc">検索条件またはタブの選択を変更してください。</div>
+          </div>
+        </div>
+
+        <!-- Pagination Bar -->
+        <div class="pagination-bar">
+          <div id="pagination-info">0 件中 0 件を表示</div>
+          <div class="pagination-controls">
+            <button type="button" class="btn btn-sm" id="btn-page-prev" disabled>前へ</button>
+            <span id="page-num-display" style="padding: 0 4px; font-variant-numeric: tabular-nums;">1 / 1</span>
+            <button type="button" class="btn btn-sm" id="btn-page-next" disabled>次へ</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Client-Side Application Logic (External Communication: ZERO) -->
+  <script>
+    (function () {
+      'use strict';
+
+      // Application State (In-Memory Only)
+      var state = {
+        dataA: null, // { fileName, headers, rows: [[]], rowObjects: [{}] }
+        dataB: null,
+        keyColA: '',
+        keyColB: '',
+        reconcileResults: [], // [{ status, keyValue, rowA, rowB, diffCols, allCols }]
+        filteredResults: [],
+        currentTab: 'all',
+        searchQuery: '',
+        currentPage: 1,
+        pageSize: 50
+      };
+
+      // Sample Data for 1-Click Demo
+      var SAMPLE_CSV_A = [
+        '社員番号,氏名,部署,役職,ステータス,メールアドレス',
+        'EMP001,山田 太郎,技術部,マネージャー,在籍,yamada@example.com',
+        'EMP002,佐藤 花子,人事部,スペシャリスト,在籍,sato@example.com',
+        'EMP003,鈴木 一郎,営業部,チーフ,在籍,suzuki@example.com',
+        'EMP004,田中 健二,マーケティング部,メンバー,在籍,tanaka@example.com',
+        'EMP005,高橋 恵子,財務部,リーダー,在籍,takahashi@example.com',
+        'EMP006,伊藤 翔太,技術部,メンバー,在籍,ito@example.com'
+      ].join('\n');
+
+      var SAMPLE_CSV_B = [
+        '社員番号,氏名,部署,役職,ステータス,メールアドレス',
+        'EMP001,山田 太郎,技術部,マネージャー,在籍,yamada@example.com',
+        'EMP002,佐藤 花子,人事部,スペシャリスト,在籍,sato@example.com',
+        'EMP003,鈴木 一郎,経営企画部,マネージャー,在籍,suzuki@example.com', // 部署・役職に差異
+        'EMP004,田中 健二,マーケティング部,メンバー,休職中,tanaka@example.com', // ステータスに差異
+        'EMP005,高橋 恵子,財務部,リーダー,在籍,takahashi@example.com',
+        'EMP007,渡辺 拓也,総務部,メンバー,在籍,watanabe@example.com' // Bのみ存在 (EMP006はAのみ)
+      ].join('\n');
+
+      // Elements
+      var dropzoneA = document.getElementById('dropzone-a');
+      var dropzoneB = document.getElementById('dropzone-b');
+      var fileInputA = document.getElementById('file-input-a');
+      var fileInputB = document.getElementById('file-input-b');
+      var encodingA = document.getElementById('encoding-a');
+      var encodingB = document.getElementById('encoding-b');
+      var titleA = document.getElementById('title-file-a');
+      var titleB = document.getElementById('title-file-b');
+      var descA = document.getElementById('desc-file-a');
+      var descB = document.getElementById('desc-file-b');
+
+      var configPanel = document.getElementById('config-panel');
+      var selectKeyA = document.getElementById('select-key-a');
+      var selectKeyB = document.getElementById('select-key-b');
+      var optTrim = document.getElementById('opt-trim');
+      var optIgnoreCase = document.getElementById('opt-ignore-case');
+      var btnRunMatch = document.getElementById('btn-run-match');
+      var btnLoadSample = document.getElementById('btn-load-sample');
+      var btnReset = document.getElementById('btn-reset');
+
+      var resultsSection = document.getElementById('results-section');
+      var statMatchCount = document.getElementById('stat-match-count');
+      var statDiffCount = document.getElementById('stat-diff-count');
+      var statOnlyACount = document.getElementById('stat-only-a-count');
+      var statOnlyBCount = document.getElementById('stat-only-b-count');
+      var statMatchRate = document.getElementById('stat-match-rate');
+      var statRateBadge = document.getElementById('stat-rate-badge');
+
+      var barMatch = document.getElementById('bar-match');
+      var barDiff = document.getElementById('bar-diff');
+      var barA = document.getElementById('bar-a');
+      var barB = document.getElementById('bar-b');
+
+      var tabButtons = document.querySelectorAll('.segment-btn');
+      var searchInput = document.getElementById('table-search-input');
+      var btnExportCsv = document.getElementById('btn-export-csv');
+
+      var tableHead = document.getElementById('table-head');
+      var tableBody = document.getElementById('table-body');
+      var tableEmptyMsg = document.getElementById('table-empty-msg');
+      var paginationInfo = document.getElementById('pagination-info');
+      var btnPagePrev = document.getElementById('btn-page-prev');
+      var btnPageNext = document.getElementById('btn-page-next');
+      var pageNumDisplay = document.getElementById('page-num-display');
+
+      // RFC 4180 Compliant Robust CSV Parser (Supports embedded quotes & newlines)
+      function parseCSV(text) {
+        var rows = [];
+        var row = [];
+        var token = '';
+        var inQuotes = false;
+        var len = text.length;
+
+        for (var i = 0; i < len; i++) {
+          var c = text[i];
+          if (inQuotes) {
+            if (c === '"') {
+              if (i + 1 < len && text[i + 1] === '"') {
+                token += '"';
+                i++; // skip next quote
+              } else {
+                inQuotes = false;
+              }
+            } else {
+              token += c;
+            }
+          } else {
+            if (c === '"') {
+              inQuotes = true;
+            } else if (c === ',') {
+              row.push(token);
+              token = '';
+            } else if (c === '\r') {
+              if (i + 1 < len && text[i + 1] === '\n') {
+                i++;
+              }
+              row.push(token);
+              rows.push(row);
+              row = [];
+              token = '';
+            } else if (c === '\n') {
+              row.push(token);
+              rows.push(row);
+              row = [];
+              token = '';
+            } else {
+              token += c;
+            }
+          }
+        }
+        if (token.length > 0 || row.length > 0) {
+          row.push(token);
+          rows.push(row);
+        }
+
+        // Clean trailing empty rows
+        return rows.filter(function (r) {
+          return r.length > 0 && r.some(function (cell) { return cell.trim().length > 0; });
+        });
+      }
+
+      function createDataModel(fileName, parsedRows) {
+        if (!parsedRows || parsedRows.length === 0) return null;
+        var headers = parsedRows[0].map(function (h) { return h.trim(); });
+        var rawRows = parsedRows.slice(1);
+        var rowObjects = [];
+
+        for (var i = 0; i < rawRows.length; i++) {
+          var r = rawRows[i];
+          var obj = {};
+          for (var h = 0; h < headers.length; h++) {
+            obj[headers[h]] = (r[h] !== undefined) ? r[h] : '';
+          }
+          rowObjects.push(obj);
+        }
+
+        return {
+          fileName: fileName,
+          headers: headers,
+          rows: rawRows,
+          rowObjects: rowObjects
+        };
+      }
+
+      function readFileWithEncoding(file, encoding, callback) {
+        var reader = new FileReader();
+        reader.onload = function (e) {
+          try {
+            var buffer = e.target.result;
+            var decoder = new TextDecoder(encoding || 'utf-8');
+            var text = decoder.decode(buffer);
+            callback(null, text);
+          } catch (err) {
+            callback(err, null);
+          }
+        };
+        reader.onerror = function (err) {
+          callback(err, null);
+        };
+        reader.readAsArrayBuffer(file);
+      }
+
+      function updateDropzoneUI(type, data) {
+        var zone = (type === 'A') ? dropzoneA : dropzoneB;
+        var title = (type === 'A') ? titleA : titleB;
+        var desc = (type === 'A') ? descA : descB;
+
+        if (data) {
+          zone.classList.add('has-file');
+          title.textContent = data.fileName;
+          desc.textContent = data.rowObjects.length + ' 件のデータ (' + data.headers.length + ' 列)';
+        } else {
+          zone.classList.remove('has-file');
+          title.textContent = (type === 'A') ? '基準データ (CSV A)' : '比較データ (CSV B)';
+          desc.textContent = 'クリックまたはファイルをドロップ';
+        }
+
+        checkBothLoaded();
+      }
+
+      function checkBothLoaded() {
+        if (state.dataA && state.dataB) {
+          populateKeySelectors();
+          configPanel.classList.remove('hidden');
+        } else {
+          configPanel.classList.add('hidden');
+          resultsSection.classList.add('hidden');
+        }
+      }
+
+      function populateKeySelectors() {
+        selectKeyA.innerHTML = '';
+        selectKeyB.innerHTML = '';
+
+        state.dataA.headers.forEach(function (h) {
+          var opt = document.createElement('option');
+          opt.value = h;
+          opt.textContent = h;
+          selectKeyA.appendChild(opt);
+        });
+
+        state.dataB.headers.forEach(function (h) {
+          var opt = document.createElement('option');
+          opt.value = h;
+          opt.textContent = h;
+          selectKeyB.appendChild(opt);
+        });
+
+        // Try to automatically find common matching column name (e.g. ID, 社員番号, コード)
+        var commonHeaders = state.dataA.headers.filter(function (h) {
+          return state.dataB.headers.indexOf(h) !== -1;
+        });
+
+        if (commonHeaders.length > 0) {
+          selectKeyA.value = commonHeaders[0];
+          selectKeyB.value = commonHeaders[0];
+        }
+      }
+
+      // Reconciliation Core
+      function runReconciliation() {
+        var keyA = selectKeyA.value;
+        var keyB = selectKeyB.value;
+        if (!keyA || !keyB) {
+          alert('突合キー列を選択してください。');
+          return;
+        }
+
+        state.keyColA = keyA;
+        state.keyColB = keyB;
+        var isTrim = optTrim.checked;
+        var isIgnoreCase = optIgnoreCase.checked;
+
+        function normalizeVal(val) {
+          var s = (val === null || val === undefined) ? '' : String(val);
+          if (isTrim) s = s.trim();
+          if (isIgnoreCase) s = s.toLowerCase();
+          return s;
+        }
+
+        // Build Index for B
+        var mapB = new Map();
+        for (var b = 0; b < state.dataB.rowObjects.length; b++) {
+          var rowObjB = state.dataB.rowObjects[b];
+          var rawKeyValB = rowObjB[keyB];
+          var normKeyValB = normalizeVal(rawKeyValB);
+          if (!mapB.has(normKeyValB)) {
+            mapB.set(normKeyValB, []);
+          }
+          mapB.get(normKeyValB).push({ row: rowObjB, used: false });
+        }
+
+        var results = [];
+        var allCompareHeaders = Array.from(new Set(state.dataA.headers.concat(state.dataB.headers)));
+
+        // Process A
+        for (var a = 0; a < state.dataA.rowObjects.length; a++) {
+          var rowObjA = state.dataA.rowObjects[a];
+          var rawKeyValA = rowObjA[keyA];
+          var normKeyValA = normalizeVal(rawKeyValA);
+
+          var matchedBEntries = mapB.get(normKeyValA);
+          if (!matchedBEntries || matchedBEntries.length === 0) {
+            // Only in A
+            results.push({
+              status: 'only_a',
+              keyValue: rawKeyValA,
+              rowA: rowObjA,
+              rowB: null,
+              diffCols: [],
+              allCols: allCompareHeaders
+            });
+          } else {
+            // Found in B
+            var matchEntry = matchedBEntries.find(function (item) { return !item.used; }) || matchedBEntries[0];
+            matchEntry.used = true;
+            var rowObjB = matchEntry.row;
+
+            // Check diffs on common columns
+            var diffCols = [];
+            allCompareHeaders.forEach(function (col) {
+              if (col === keyA && col === keyB) return; // key itself matched
+              var valA = rowObjA[col] !== undefined ? rowObjA[col] : '';
+              var valB = rowObjB[col] !== undefined ? rowObjB[col] : '';
+
+              if (normalizeVal(valA) !== normalizeVal(valB)) {
+                diffCols.push(col);
+              }
+            });
+
+            if (diffCols.length === 0) {
+              results.push({
+                status: 'match',
+                keyValue: rawKeyValA,
+                rowA: rowObjA,
+                rowB: rowObjB,
+                diffCols: [],
+                allCols: allCompareHeaders
+              });
+            } else {
+              results.push({
+                status: 'diff',
+                keyValue: rawKeyValA,
+                rowA: rowObjA,
+                rowB: rowObjB,
+                diffCols: diffCols,
+                allCols: allCompareHeaders
+              });
+            }
+          }
+        }
+
+        // Process Remaining B (Only in B)
+        mapB.forEach(function (entries) {
+          entries.forEach(function (entry) {
+            if (!entry.used) {
+              var rawKeyValB = entry.row[keyB];
+              results.push({
+                status: 'only_b',
+                keyValue: rawKeyValB,
+                rowA: null,
+                rowB: entry.row,
+                diffCols: [],
+                allCols: allCompareHeaders
+              });
+            }
+          });
+        });
+
+        state.reconcileResults = results;
+        state.currentPage = 1;
+
+        updateSummaryKPIs();
+        filterAndRenderTable();
+        resultsSection.classList.remove('hidden');
+      }
+
+      function updateSummaryKPIs() {
+        var total = state.reconcileResults.length;
+        var matchCount = 0;
+        var diffCount = 0;
+        var onlyACount = 0;
+        var onlyBCount = 0;
+
+        for (var i = 0; i < total; i++) {
+          var s = state.reconcileResults[i].status;
+          if (s === 'match') matchCount++;
+          else if (s === 'diff') diffCount++;
+          else if (s === 'only_a') onlyACount++;
+          else if (s === 'only_b') onlyBCount++;
+        }
+
+        statMatchCount.textContent = matchCount.toLocaleString();
+        statDiffCount.textContent = diffCount.toLocaleString();
+        statOnlyACount.textContent = onlyACount.toLocaleString();
+        statOnlyBCount.textContent = onlyBCount.toLocaleString();
+
+        var matchRate = total > 0 ? Math.round((matchCount / total) * 100) : 0;
+        statMatchRate.textContent = matchRate + '%';
+        statRateBadge.textContent = matchRate + '% 一致';
+
+        // Update progress bars
+        if (total > 0) {
+          barMatch.style.width = (matchCount / total * 100) + '%';
+          barDiff.style.width = (diffCount / total * 100) + '%';
+          barA.style.width = (onlyACount / total * 100) + '%';
+          barB.style.width = (onlyBCount / total * 100) + '%';
+        }
+
+        // Update tab badges
+        document.getElementById('tab-count-all').textContent = total.toLocaleString();
+        document.getElementById('tab-count-diff').textContent = diffCount.toLocaleString();
+        document.getElementById('tab-count-match').textContent = matchCount.toLocaleString();
+        document.getElementById('tab-count-only-a').textContent = onlyACount.toLocaleString();
+        document.getElementById('tab-count-only-b').textContent = onlyBCount.toLocaleString();
+      }
+
+      function filterAndRenderTable() {
+        var tab = state.currentTab;
+        var q = state.searchQuery.toLowerCase().trim();
+
+        state.filteredResults = state.reconcileResults.filter(function (item) {
+          // Tab filter
+          if (tab !== 'all' && item.status !== tab) return false;
+
+          // Search query filter
+          if (q) {
+            var matchSearch = false;
+            if (String(item.keyValue).toLowerCase().indexOf(q) !== -1) matchSearch = true;
+            if (!matchSearch && item.rowA) {
+              for (var k in item.rowA) {
+                if (String(item.rowA[k]).toLowerCase().indexOf(q) !== -1) {
+                  matchSearch = true;
+                  break;
+                }
+              }
+            }
+            if (!matchSearch && item.rowB) {
+              for (var kb in item.rowB) {
+                if (String(item.rowB[kb]).toLowerCase().indexOf(q) !== -1) {
+                  matchSearch = true;
+                  break;
+                }
+              }
+            }
+            if (!matchSearch) return false;
+          }
+          return true;
+        });
+
+        renderTable();
+      }
+
+      function renderTable() {
+        var totalFiltered = state.filteredResults.length;
+        var pageSize = state.pageSize;
+        var totalPages = Math.max(1, Math.ceil(totalFiltered / pageSize));
+
+        if (state.currentPage > totalPages) state.currentPage = totalPages;
+        if (state.currentPage < 1) state.currentPage = 1;
+
+        var startIdx = (state.currentPage - 1) * pageSize;
+        var endIdx = Math.min(startIdx + pageSize, totalFiltered);
+        var pageItems = state.filteredResults.slice(startIdx, endIdx);
+
+        // Pagination bar updates
+        if (totalFiltered === 0) {
+          paginationInfo.textContent = '0 件中 0 件を表示';
+          pageNumDisplay.textContent = '0 / 0';
+          btnPagePrev.disabled = true;
+          btnPageNext.disabled = true;
+        } else {
+          paginationInfo.textContent = totalFiltered.toLocaleString() + ' 件中 ' + (startIdx + 1) + ' - ' + endIdx + ' 件を表示';
+          pageNumDisplay.textContent = state.currentPage + ' / ' + totalPages;
+          btnPagePrev.disabled = (state.currentPage <= 1);
+          btnPageNext.disabled = (state.currentPage >= totalPages);
+        }
+
+        // Render Head
+        tableHead.innerHTML = '';
+        var headTr = document.createElement('tr');
+
+        var thStatus = document.createElement('th');
+        thStatus.textContent = '判定ステータス';
+        thStatus.style.width = '110px';
+        headTr.appendChild(thStatus);
+
+        var thKey = document.createElement('th');
+        thKey.textContent = '突合キー (' + escapeHtml(state.keyColA) + ')';
+        headTr.appendChild(thKey);
+
+        var displayCols = state.reconcileResults.length > 0 ? state.reconcileResults[0].allCols : [];
+        displayCols.forEach(function (col) {
+          if (col === state.keyColA && col === state.keyColB) return;
+          var th = document.createElement('th');
+          th.textContent = col;
+          headTr.appendChild(th);
+        });
+        tableHead.appendChild(headTr);
+
+        // Render Body
+        tableBody.innerHTML = '';
+        if (pageItems.length === 0) {
+          tableEmptyMsg.classList.remove('hidden');
+          return;
+        }
+        tableEmptyMsg.classList.add('hidden');
+
+        pageItems.forEach(function (item) {
+          var tr = document.createElement('tr');
+
+          // Status Badge Cell
+          var tdStatus = document.createElement('td');
+          var badgeSpan = document.createElement('span');
+          badgeSpan.className = 'badge';
+          if (item.status === 'match') {
+            badgeSpan.classList.add('badge-safe');
+            badgeSpan.textContent = '完全一致';
+          } else if (item.status === 'diff') {
+            badgeSpan.classList.add('badge-warn');
+            badgeSpan.textContent = '差異あり (' + item.diffCols.length + ')';
+          } else if (item.status === 'only_a') {
+            badgeSpan.classList.add('badge-info');
+            badgeSpan.textContent = 'Aのみ';
+          } else if (item.status === 'only_b') {
+            badgeSpan.classList.add('badge-purple');
+            badgeSpan.textContent = 'Bのみ';
+          }
+          tdStatus.appendChild(badgeSpan);
+          tr.appendChild(tdStatus);
+
+          // Key Value Cell
+          var tdKey = document.createElement('td');
+          tdKey.style.fontWeight = '600';
+          tdKey.textContent = item.keyValue || '-';
+          tr.appendChild(tdKey);
+
+          // Other Columns
+          displayCols.forEach(function (col) {
+            if (col === state.keyColA && col === state.keyColB) return;
+            var td = document.createElement('td');
+            var valA = item.rowA ? (item.rowA[col] !== undefined ? item.rowA[col] : '') : '';
+            var valB = item.rowB ? (item.rowB[col] !== undefined ? item.rowB[col] : '') : '';
+
+            var isDiff = item.diffCols && item.diffCols.indexOf(col) !== -1;
+
+            if (item.status === 'match') {
+              td.textContent = valA || '-';
+            } else if (item.status === 'only_a') {
+              td.textContent = valA || '-';
+              td.style.color = 'var(--text-muted)';
+            } else if (item.status === 'only_b') {
+              td.textContent = valB || '-';
+              td.style.color = 'var(--text-muted)';
+            } else if (isDiff) {
+              td.className = 'diff-cell';
+              var spanA = document.createElement('span');
+              spanA.className = 'diff-val-a';
+              spanA.textContent = 'A: ' + (valA || '(空)');
+              var spanB = document.createElement('span');
+              spanB.className = 'diff-val-b';
+              spanB.textContent = 'B: ' + (valB || '(空)');
+              td.appendChild(spanA);
+              td.appendChild(spanB);
+            } else {
+              td.textContent = valA || '-';
+            }
+            tr.appendChild(td);
+          });
+
+          tableBody.appendChild(tr);
+        });
+      }
+
+      function escapeHtml(str) {
+        if (!str) return '';
+        return String(str)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#039;');
+      }
+
+      // Safe CSV Export (Synchronous blob triggered by user click)
+      function exportReconciliationCSV() {
+        if (!state.reconcileResults || state.reconcileResults.length === 0) {
+          alert('出力する突合データがありません。');
+          return;
+        }
+
+        var resultsToExport = state.filteredResults;
+        var cols = state.reconcileResults[0].allCols;
+
+        // Build CSV Content
+        var csvRows = [];
+        var headers = ['突合ステータス', '突合キー', '差異列一覧'];
+        cols.forEach(function (col) {
+          headers.push(col + ' (A)');
+          headers.push(col + ' (B)');
+        });
+        csvRows.push(headers.map(escapeCsvCell).join(','));
+
+        resultsToExport.forEach(function (item) {
+          var row = [
+            item.status,
+            item.keyValue,
+            (item.diffCols || []).join(';')
+          ];
+          cols.forEach(function (col) {
+            var valA = item.rowA && item.rowA[col] !== undefined ? item.rowA[col] : '';
+            var valB = item.rowB && item.rowB[col] !== undefined ? item.rowB[col] : '';
+            row.push(valA);
+            row.push(valB);
+          });
+          csvRows.push(row.map(escapeCsvCell).join(','));
+        });
+
+        // Add UTF-8 BOM so Excel opens with proper Japanese text
+        var csvString = '\uFEFF' + csvRows.join('\r\n');
+        var blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+        var url = URL.createObjectURL(blob);
+
+        var a = document.createElement('a');
+        var timestamp = new Date().toISOString().slice(0, 10);
+        a.href = url;
+        a.download = 'csv-reconcile-result-' + timestamp + '.csv';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(function () {
+          URL.revokeObjectURL(url);
+        }, 1000);
+      }
+
+      function escapeCsvCell(val) {
+        var s = (val === null || val === undefined) ? '' : String(val);
+        if (s.indexOf(',') !== -1 || s.indexOf('"') !== -1 || s.indexOf('\n') !== -1 || s.indexOf('\r') !== -1) {
+          return '"' + s.replace(/"/g, '""') + '"';
+        }
+        return s;
+      }
+
+      // Event Listeners & Drag Drop Handlers
+      function setupDropzone(zone, fileInput, encodingSelect, type) {
+        zone.addEventListener('click', function () {
+          fileInput.click();
+        });
+
+        fileInput.addEventListener('change', function () {
+          if (fileInput.files && fileInput.files[0]) {
+            processFile(fileInput.files[0], encodingSelect.value, type);
+          }
+        });
+
+        encodingSelect.addEventListener('change', function () {
+          if (fileInput.files && fileInput.files[0]) {
+            processFile(fileInput.files[0], encodingSelect.value, type);
+          }
+        });
+
+        zone.addEventListener('dragover', function (e) {
+          e.preventDefault();
+          zone.classList.add('dragover');
+        });
+
+        zone.addEventListener('dragleave', function () {
+          zone.classList.remove('dragover');
+        });
+
+        zone.addEventListener('drop', function (e) {
+          e.preventDefault();
+          zone.classList.remove('dragover');
+          if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]) {
+            var file = e.dataTransfer.files[0];
+            processFile(file, encodingSelect.value, type);
+          }
+        });
+      }
+
+      function processFile(file, encoding, type) {
+        readFileWithEncoding(file, encoding, function (err, text) {
+          if (err) {
+            alert('ファイルの読み込みに失敗しました: ' + err.message);
+            return;
+          }
+          var parsed = parseCSV(text);
+          if (parsed.length === 0) {
+            alert('有効なデータが検出されませんでした。');
+            return;
+          }
+          var model = createDataModel(file.name, parsed);
+          if (type === 'A') {
+            state.dataA = model;
+            updateDropzoneUI('A', model);
+          } else {
+            state.dataB = model;
+            updateDropzoneUI('B', model);
+          }
+        });
+      }
+
+      // Initialize
+      setupDropzone(dropzoneA, fileInputA, encodingA, 'A');
+      setupDropzone(dropzoneB, fileInputB, encodingB, 'B');
+
+      btnRunMatch.addEventListener('click', runReconciliation);
+      btnExportCsv.addEventListener('click', exportReconciliationCSV);
+
+      // Tab Switching
+      tabButtons.forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          tabButtons.forEach(function (b) { b.classList.remove('active'); });
+          btn.classList.add('active');
+          state.currentTab = btn.getAttribute('data-tab');
+          state.currentPage = 1;
+          filterAndRenderTable();
+        });
+      });
+
+      // Search input
+      searchInput.addEventListener('input', function () {
+        state.searchQuery = searchInput.value;
+        state.currentPage = 1;
+        filterAndRenderTable();
+      });
+
+      // Keyboard Shortcut Ctrl+K
+      window.addEventListener('keydown', function (e) {
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+          e.preventDefault();
+          searchInput.focus();
+        }
+      });
+
+      // Pagination clicks
+      btnPagePrev.addEventListener('click', function () {
+        if (state.currentPage > 1) {
+          state.currentPage--;
+          renderTable();
+        }
+      });
+
+      btnPageNext.addEventListener('click', function () {
+        var totalPages = Math.ceil(state.filteredResults.length / state.pageSize);
+        if (state.currentPage < totalPages) {
+          state.currentPage++;
+          renderTable();
+        }
+      });
+
+      // 1-Click Sample Data Loader
+      btnLoadSample.addEventListener('click', function () {
+        var parsedA = parseCSV(SAMPLE_CSV_A);
+        var parsedB = parseCSV(SAMPLE_CSV_B);
+        state.dataA = createDataModel('社員マスタ_202603.csv (サンプルA)', parsedA);
+        state.dataB = createDataModel('勤怠システム_202603.csv (サンプルB)', parsedB);
+        updateDropzoneUI('A', state.dataA);
+        updateDropzoneUI('B', state.dataB);
+        runReconciliation();
+      });
+
+      // Reset
+      btnReset.addEventListener('click', function () {
+        state.dataA = null;
+        state.dataB = null;
+        state.reconcileResults = [];
+        state.filteredResults = [];
+        fileInputA.value = '';
+        fileInputB.value = '';
+        updateDropzoneUI('A', null);
+        updateDropzoneUI('B', null);
+        resultsSection.classList.add('hidden');
+        configPanel.classList.add('hidden');
+      });
+
+    })();
+  </script>
+</body>
+</html>

@@ -88,3 +88,8 @@ GAS Artifact Hub は、ゼロトラスト隔離環境（`null` origin）の ifra
    - 左右 2 ペインのリアルタイム Markdown プレビューエディタ。
    - 外部ライブラリを使わない安全なインライン Markdown 変換器（XSS エスケープ徹底）。
    - クリップボードコピーおよび Markdown ファイル保存機能、外部通信ゼロ。
+4. **[CSV Matcher](../examples/csv-matcher.html)**
+   - 2 つの CSV ファイル（基準 A vs 比較 B）をキー列で突合・差分検出する高機能照合ツール。
+   - Enterprise Hybrid デザイン準拠、UTF-8 / Shift-JIS 対応、ワンクリック・サンプルデータ読み込み。
+   - 完全一致・差異あり・片方のみの分類とセル単位の差分ハイライト、Excel 対応 UTF-8 BOM 付き CSV ダウンロード、外部通信ゼロ。
+

@@ -73,7 +73,7 @@ Google Workspaceの管理者アカウントで開いてコピーを作成して�
 
 - **アーティファクト作成者向け**:
   - [アーティファクト作成ガイドラインと AI 用プロンプト](docs/artifact-authoring.md): サンドボックスの制約、AI への指示プロンプト、安全なダウンロード実装。
-  - [サンプルアーティファクト一覧](examples/): すぐに試せる 3 つの安全なサンプル（[カウンター](examples/hello-counter.html)、[CSV解析](examples/csv-analyzer.html)、[Markdown](examples/markdown-previewer.html)）。
+  - [サンプルアーティファクト一覧](examples/): すぐに試せる 4 つの安全なサンプル（[カウンター](examples/hello-counter.html)、[CSV解析](examples/csv-analyzer.html)、[CSV突合](examples/csv-matcher.html)、[Markdown](examples/markdown-previewer.html)）。
 - **管理者・運用担当者向け**:
   - [導入手順書](docs/setup.md): 新規導入・権限分離・clasp 設定。
   - [運用・保守マニュアル](docs/operations.md): 緊急停止、管理責任者引継ぎ、版切替、バックアップ・復旧、監査ログ。
