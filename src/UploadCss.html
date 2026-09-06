@@ -103,14 +103,17 @@
   .brand-mark {
     width: 24px;
     height: 24px;
-    background: var(--primary);
-    color: var(--surface);
     border-radius: 6px;
+    overflow: hidden;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-weight: 700;
-    font-size: 12px;
+  }
+  .brand-mark img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
   }
   .brand-text {
     font-weight: 600;
