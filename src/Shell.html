@@ -15,6 +15,7 @@
     var SERVER_APP_URL = '<?!= ScriptApp.getService().getUrl() ?>';
   </script>
   <?!= include_('ShellCss'); ?>
+  <?!= include_('ArtifactDialogsCss'); ?>
 </head>
 <body>
 
@@ -255,101 +256,9 @@
     </div>
   </div>
 
-  <!-- 6. 新バージョンアップロードモーダル -->
-  <div class="modal-backdrop" id="uploadModal" role="dialog" aria-modal="true" aria-labelledby="uploadModalTitle">
-    <div class="modal-box">
-      <div class="modal-head">
-        <span id="uploadModalTitle">新しいバージョンを投稿</span>
-        <button class="btn-close-sm" onclick="closeNewVersionModal()" aria-label="閉じる">
-          <svg class="icon" viewBox="0 0 24 24"><line x1="18" x2="6" y1="6" y2="18"/><line x1="6" x2="18" y1="6" y2="18"/></svg>
-        </button>
-      </div>
-      <div class="modal-body">
-        <!-- ファイル選択ドロップエリア -->
-        <button type="button" class="dropzone-mini" id="update-dropzone" onclick="document.getElementById('update-file-input').click()">
-          <svg class="icon" style="margin-bottom: 6px; color: var(--text-sub);" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
-          <div style="font-weight: 600; font-size: 13px; color: var(--text);" id="update-file-label">HTMLファイルを選択またはドロップ</div>
-          <div style="font-size: 11px; color: var(--text-sub);" id="update-file-sub">クリックしてファイルを選択 (.html / .htm)</div>
-        </button>
-        <input type="file" id="update-file-input" accept=".html,.htm" style="display: none;" onchange="handleUpdateFileInputChange(this.files)">
+  <?!= include_('ArtifactVersionUpload'); ?>
 
-        <!-- 静的セキュリティスキャン結果カード -->
-        <div class="scan-card" id="updateScanCard" style="display: none;">
-          <div class="scan-header">
-            <svg class="icon" style="color: var(--badge-safe-text);" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-            <span id="update-scan-status-title">静的セキュリティ診断中...</span>
-          </div>
-          <div class="scan-row">
-            <span>ファイルサイズ</span>
-            <span id="update-scan-filesize">-</span>
-          </div>
-          <div class="scan-row">
-            <span>ネットワーク通信</span>
-            <span id="update-scan-network-status">-</span>
-          </div>
-          <div class="scan-row">
-            <span>Cookie / 認証情報アクセス</span>
-            <span id="update-scan-auth-status">-</span>
-          </div>
-        </div>
-
-      </div>
-      <div class="modal-foot">
-        <button class="btn-header" onclick="closeNewVersionModal()">キャンセル</button>
-        <button class="btn-header btn-header-primary" id="btn-submit-version" onclick="submitNewVersion()" disabled>新しいバージョンを公開する</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- 7. 設定モーダル（メタデータ・ACL・無効化） -->
-  <div class="modal-backdrop" id="settingsModal" role="dialog" aria-modal="true" aria-labelledby="settingsModalTitle">
-    <div class="modal-box">
-      <div class="modal-head">
-        <span id="settingsModalTitle">アーティファクトの設定</span>
-        <button class="btn-close-sm" data-dialog-close onclick="closeSettingsModal()" aria-label="閉じる">
-          <svg class="icon" viewBox="0 0 24 24"><line x1="18" x2="6" y1="6" y2="18"/><line x1="6" x2="18" y1="6" y2="18"/></svg>
-        </button>
-      </div>
-      <div class="modal-body">
-        <p id="settingsModal-status" class="settings-status" role="status"></p>
-        <div style="margin-bottom: 14px;">
-          <label class="modal-label" for="settings-title">表示タイトル</label>
-          <input type="text" class="modal-input" id="settings-title" maxlength="100">
-        </div>
-        <div style="margin-bottom: 14px;">
-          <label class="modal-label" for="settings-desc">説明・用途</label>
-          <textarea class="modal-input" id="settings-desc" rows="2" maxlength="200"></textarea>
-        </div>
-        <div style="margin-bottom: 14px;">
-          <label class="modal-label">公開範囲</label>
-          <select class="modal-input" id="settings-visibility" onchange="toggleSettingsAclSection()">
-            <option value="all">全社公開 (組織全体)</option>
-            <option value="list">限定公開 (特定メンバー)</option>
-            <option value="private">自分のみ (非公開)</option>
-          </select>
-        </div>
-        <div class="acl-section" id="settings-acl-section" style="display: none;">
-          <label class="modal-label">閲覧・編集を許可するメンバー</label>
-          <div id="settings-acl-rows"><!-- JSで行を描画 --></div>
-          <div class="acl-add-row">
-            <input type="email" class="modal-input" id="settings-acl-email-input" placeholder="email@company.com">
-            <select class="modal-input acl-role-select" id="settings-acl-role-select">
-              <option value="viewer">閲覧のみ</option>
-              <option value="editor">編集可</option>
-            </select>
-            <button class="btn-header" onclick="addAclMember()">追加</button>
-          </div>
-        </div>
-        <div style="border-top: 1px solid var(--border); padding-top: 14px; margin-top: 14px;">
-          <button class="btn-header" style="color: #ef4444; border-color: rgba(239, 68, 68, 0.3);" onclick="handleDeleteArtifact()">このアーティファクトを無効化（削除）する</button>
-        </div>
-      </div>
-      <div class="modal-foot">
-        <button class="btn-header" data-dialog-close onclick="closeSettingsModal()">キャンセル</button>
-        <button class="btn-header btn-header-primary" id="btn-save-settings" onclick="saveSettings()">設定を保存</button>
-      </div>
-    </div>
-  </div>
+  <?!= include_('ArtifactSettings'); ?>
 
   <!-- 8. 削除完了モーダル（実際のボタンクリックからのみ遷移させ、トップフレーム遷移をブロックされないようにする） -->
   <div class="modal-backdrop" id="deleteDoneModal" role="dialog" aria-modal="true" aria-labelledby="deleteDoneModalTitle">

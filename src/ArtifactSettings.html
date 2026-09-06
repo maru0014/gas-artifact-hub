@@ -1,0 +1,61 @@
+<!-- 一覧と詳細で共有するアーティファクト設定ダイアログ -->
+<div class="modal-backdrop artifact-dialog" id="settingsModal" role="dialog" aria-modal="true" aria-labelledby="settingsModalTitle" inert>
+  <div class="modal-box">
+    <div class="modal-head">
+      <span id="settingsModalTitle">アーティファクトの設定</span>
+      <button class="btn-close-sm" data-dialog-close onclick="closeSettingsModal()" aria-label="閉じる">
+        <svg class="icon" viewBox="0 0 24 24"><line x1="18" x2="6" y1="6" y2="18"/><line x1="6" x2="18" y1="6" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <p id="settingsModal-status" class="settings-status" role="status"></p>
+      <div class="dialog-field">
+        <label class="modal-label" for="settings-title">表示名 <span style="color: #ef4444;">*</span></label>
+        <input type="text" class="modal-input form-input" id="settings-title" maxlength="100">
+      </div>
+      <div class="dialog-field">
+        <label class="modal-label" for="settings-desc">説明・用途</label>
+        <textarea class="modal-input form-textarea" id="settings-desc" rows="2" maxlength="200"></textarea>
+      </div>
+      <div class="dialog-field">
+        <label class="modal-label" for="settings-visibility">公開範囲</label>
+        <select class="modal-input form-input" id="settings-visibility" onchange="toggleSettingsAclSection()">
+          <option value="all">全社公開 (組織全体)</option>
+          <option value="list">限定公開 (特定メンバー)</option>
+          <option value="private">自分のみ (非公開)</option>
+        </select>
+      </div>
+      <div class="acl-section" id="settings-acl-section" style="display: none;">
+        <label class="modal-label">閲覧・編集を許可するメンバー</label>
+        <div id="settings-acl-rows"><!-- JSで行を描画 --></div>
+        <div class="acl-add-row">
+          <input type="email" class="modal-input form-input" id="settings-acl-email-input" placeholder="email@company.com">
+          <select class="modal-input form-input acl-role-select" id="settings-acl-role-select">
+            <option value="viewer">閲覧のみ</option>
+            <option value="editor">編集可</option>
+          </select>
+          <button class="btn-action-ghost btn-header" type="button" onclick="addAclMember()">追加</button>
+        </div>
+      </div>
+      <section class="dialog-section" aria-labelledby="settings-version-title">
+        <h2 class="dialog-section-title" id="settings-version-title">バージョン</h2>
+        <p class="dialog-help">設定の入力内容を保持したまま、新しいHTMLを投稿できます。</p>
+        <button class="btn-action-ghost btn-header" type="button" id="btn-settings-new-version" onclick="openNewVersionModal(true)">新しいバージョンを投稿</button>
+      </section>
+      <section class="dialog-section" aria-labelledby="settings-delete-title">
+        <h2 class="dialog-section-title" id="settings-delete-title">削除</h2>
+        <p class="dialog-help">削除すると、このアーティファクトにアクセスできなくなります。</p>
+        <button class="btn-action-ghost btn-header dialog-danger" type="button" id="btn-settings-delete" onclick="handleDeleteArtifact()">このアーティファクトを無効化（削除）する</button>
+      </section>
+      <div class="dialog-section dialog-identity">
+        <span>UUID</span>
+        <code id="settings-artifact-id"></code>
+        <button type="button" class="btn-action-ghost btn-header" id="btn-copy-settings-id" onclick="copySettingsArtifactId()">コピー</button>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn-action-ghost btn-header" data-dialog-close onclick="closeSettingsModal()">キャンセル</button>
+      <button class="btn-action-primary btn-header btn-header-primary" id="btn-save-settings" onclick="saveSettings()">設定を保存</button>
+    </div>
+  </div>
+</div>

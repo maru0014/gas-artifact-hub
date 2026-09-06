@@ -92,29 +92,56 @@ test('後から選択したファイルの読込完了まで投稿を止め古�
   await expect.poll(() => page.evaluate(() => window.__GAS_TEST__.calls.filter(call => call.method === 'apiUploadArtifact').map(call => call.args[0].htmlContent))).toEqual(['<p>LATEST FILE</p>']);
 });
 
-test('編集画面でバージョンを更新しても編集中の設定を保持する', async ({ page }) => {
-  await prepare(page);
+test('共通設定画面から新版投稿を重ねても設定下書きを保持し、更新メモを送る', async ({ page }) => {
+  await prepare(page, { delays: { apiUploadVersion: 500 } });
   await loadedList(page);
   await page.locator('#gridView .card').filter({ hasText: '売上ダッシュボード' }).getByRole('button', { name: '編集', exact: true }).click();
-  await expect(page.locator('#btn-save-edit-metadata')).toBeEnabled();
-  await page.locator('#edit-title-input').fill('編集中のタイトル');
-  await page.locator('#edit-version-file').setInputFiles({ name: 'update.html', mimeType: 'text/html', buffer: Buffer.from('<p>UPDATED VERSION</p>') });
-  await page.locator('#btn-edit-version').click();
-  await expect(page.locator('#edit-version-status')).toHaveText('バージョンを更新しました');
-  await expect(page.locator('#edit-title-input')).toHaveValue('編集中のタイトル');
-  await expect(page.locator('#editMetadataModal')).toHaveClass(/show/);
-  await expect.poll(() => page.evaluate(() => window.__GAS_TEST__.calls.filter(call => call.method.startsWith('apiUpload')))).toEqual([{ method: 'apiUploadVersion', args: ['demo-artifact', '<p>UPDATED VERSION</p>'] }]);
-  await page.locator('#btn-save-edit-metadata').click();
+  await expect(page.locator('#btn-save-settings')).toBeEnabled();
+  await expect(page.locator('#settings-artifact-id')).toHaveText('demo-artifact');
+  await page.locator('#settings-title').fill('編集中のタイトル');
+  await page.locator('#btn-settings-new-version').click();
+  await expect(page.locator('#uploadModal')).toHaveClass(/show/);
+  await expect(page.locator('#settingsModal')).toHaveClass(/show/);
+  await expect(page.locator('#settingsModal')).toHaveAttribute('inert', '');
+  await page.locator('#update-file-input').setInputFiles({ name: 'update.html', mimeType: 'text/html', buffer: Buffer.from('<p>UPDATED VERSION</p>') });
+  await expect(page.locator('#updateScanCard')).toBeVisible();
+  await page.locator('#update-change-note').fill('見出しと余白を調整');
+  await page.locator('#btn-submit-version').click();
+  await expect(page.locator('#btn-close-version')).toBeDisabled();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#uploadModal')).toHaveClass(/show/);
+  await expect(page.locator('#uploadModal')).not.toHaveClass(/show/);
+  await expect(page.locator('#settings-title')).toHaveValue('編集中のタイトル');
+  await expect(page.locator('#settingsModal')).toHaveClass(/show/);
+  await expect(page.locator('#settingsModal')).not.toHaveAttribute('inert', '');
+  await expect.poll(() => page.evaluate(() => window.__GAS_TEST__.calls.filter(call => call.method.startsWith('apiUpload')))).toEqual([{ method: 'apiUploadVersion', args: ['demo-artifact', '<p>UPDATED VERSION</p>', '見出しと余白を調整'] }]);
+  await page.locator('#btn-save-settings').click();
   await expect.poll(() => page.evaluate(() => window.__GAS_TEST__.calls.find(call => call.method === 'apiSaveArtifactSettings')?.args[1])).toBe('編集中のタイトル');
+  await expect(page.locator('[data-settings-artifact-id="demo-artifact"]:visible')).toBeFocused();
+});
+
+test('詳細の新版投稿後に再取得しても設定画面の操作へフォーカスを戻す', async ({ page }) => {
+  await prepare(page);
+  await page.goto('/?a=demo-artifact');
+  await acceptConsent(page);
+  await page.locator('#btn-open-settings-modal').click();
+  await expect(page.locator('#btn-save-settings')).toBeEnabled();
+  await page.locator('#btn-settings-new-version').click();
+  await page.locator('#update-file-input').setInputFiles({ name: 'update.html', mimeType: 'text/html', buffer: Buffer.from('<p>DETAIL UPDATE</p>') });
+  await page.locator('#btn-submit-version').click();
+  await expect(page.locator('#uploadModal')).not.toHaveClass(/show/);
+  await expect.poll(() => page.evaluate(() => window.__GAS_TEST__.calls.filter(call => call.method === 'apiGetArtifact').length)).toBeGreaterThanOrEqual(2);
+  await expect(page.locator('#settingsModal')).toHaveClass(/show/);
+  await expect(page.locator('#btn-settings-new-version')).toBeFocused();
 });
 
 test('ACL取得失敗時には空の権限を保存せず編集モーダルに残す', async ({ page }) => {
   await prepare(page, { fail: { apiGetAcl: '権限情報を取得できません' } });
   await loadedList(page);
   await page.locator('#gridView .card').filter({ hasText: '売上ダッシュボード' }).getByRole('button', { name: '編集', exact: true }).click();
-  await expect(page.locator('#editMetadataModal-status')).toContainText('メンバー取得に失敗しました');
-  await expect(page.locator('#editMetadataModal')).toHaveClass(/show/);
-  await expect(page.locator('#btn-save-edit-metadata')).toBeDisabled();
+  await expect(page.locator('#settingsModal-status')).toContainText('メンバー取得に失敗しました');
+  await expect(page.locator('#settingsModal')).toHaveClass(/show/);
+  await expect(page.locator('#btn-save-settings')).toBeDisabled();
   expect(await page.evaluate(() => window.__GAS_TEST__.calls.some(call => call.method === 'apiSaveArtifactSettings'))).toBe(false);
 });
 
@@ -157,6 +184,14 @@ test('SourceはHTMLを文字として表示し共有リンクは現在の版に�
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: '共有URLをコピー', exact: true }).click();
   await expect.poll(() => page.evaluate(() => window.__copiedText)).toBe('http://127.0.0.1:4173/?a=demo-artifact');
+});
+
+test('バージョン履歴に保存済みの更新メモを表示する', async ({ page }) => {
+  await prepare(page);
+  await page.goto('/?a=demo-artifact');
+  await acceptConsent(page);
+  await page.locator('#versionBtn').click();
+  await expect(page.locator('#versionDropdown')).toContainText('集計カードを更新');
 });
 
 test('320px, 375px, 768px, 1024pxで主要操作が見切れず画面全体が横にはみ出さない', async ({ page }, testInfo) => {
@@ -340,7 +375,7 @@ test('UUIDコピー通知と利用者別表示設定を正しく扱う', async (
   await loadedList(page);
   await expect(page.locator('#gridView .card-id-badge')).toHaveCount(0);
   await page.locator('#gridView .card').first().getByRole('button', { name: '編集', exact: true }).click();
-  await page.locator('#btn-copy-edit-id').click();
+  await page.locator('#btn-copy-settings-id').click();
   await expect(page.locator('#toastMsg')).toContainText('UUIDをコピーしました');
   await page.keyboard.press('Escape');
 
@@ -413,19 +448,19 @@ for (const width of [390, 1280]) {
     await page.locator('#btnList').click();
     await expect(page.locator('.col-id, .th-id')).toHaveCount(0);
     await page.locator('#tableBody tr').first().getByRole('button', { name: '編集', exact: true }).click();
-    await expect(page.locator('#btn-save-edit-metadata')).toBeEnabled();
-    await expect(page.locator('#edit-artifact-id')).toHaveText('demo-artifact');
-    await page.locator('#edit-title-input').fill('保持する名前');
+    await expect(page.locator('#btn-save-settings')).toBeEnabled();
+    await expect(page.locator('#settings-artifact-id')).toHaveText('demo-artifact');
+    await page.locator('#settings-title').fill('保持する名前');
     await page.screenshot({ path: testInfo.outputPath('unified-edit.png'), fullPage: true });
-    expect(await page.locator('.modal-box').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+    expect(await page.locator('#settingsModal .modal-box').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
     page.once('dialog', dialog => dialog.dismiss());
-    await page.locator('#btn-edit-delete').click();
+    await page.locator('#btn-settings-delete').click();
     expect(await page.evaluate(() => window.__GAS_TEST__.calls.some(call => call.method === 'apiDeleteArtifact'))).toBe(false);
     page.once('dialog', dialog => dialog.accept());
-    await page.locator('#btn-edit-delete').click();
-    await expect(page.locator('#editMetadataModal-status')).toContainText('削除失敗');
-    await expect(page.locator('#edit-title-input')).toHaveValue('保持する名前');
+    await page.locator('#btn-settings-delete').click();
+    await expect(page.locator('#settingsModal-status')).toContainText('削除失敗');
+    await expect(page.locator('#settings-title')).toHaveValue('保持する名前');
     await page.keyboard.press('Escape');
-    await expect(page.locator('#editMetadataModal')).not.toHaveClass(/show/);
+    await expect(page.locator('#settingsModal')).not.toHaveClass(/show/);
   });
 }

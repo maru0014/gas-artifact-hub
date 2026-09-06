@@ -36,7 +36,7 @@
         return { ok: true, data: {
           artifact: { ...artifact, custodian: 'owner@example.com', currentVersionId: publishedVersionId },
           currentVersion: { versionId, versionNum: versionId === 'version-1' ? 1 : 2, warnings, fileSize: rawHtml.length, sha256: 'fixture-hash' },
-          versions: [{ versionId: 'version-2', versionNum: 2, createdAt: '2026-09-02T00:00:00.000Z' }, { versionId: 'version-1', versionNum: 1, createdAt: '2026-09-01T00:00:00.000Z' }],
+          versions: [{ versionId: 'version-2', versionNum: 2, createdAt: '2026-09-02T00:00:00.000Z', changeNote: '集計カードを更新' }, { versionId: 'version-1', versionNum: 1, createdAt: '2026-09-01T00:00:00.000Z', changeNote: '' }],
           acls, isEditor: scenario.isEditor ?? true, rawHtml, config, maxHtmlSizeKb: config.maxHtmlSizeKb
         } };
       }

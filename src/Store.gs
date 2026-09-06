@@ -134,7 +134,7 @@ var Store = (function () {
       list.push({
         version_id: String(data[i][0]), artifact_id: artifactId, version_num: Number(data[i][2]), drive_file_id: String(data[i][3]),
         sha256: String(data[i][4]), file_size: Number(data[i][5]), warnings: warnings,
-        created_by: normalizeEmail_(data[i][7]), created_at: dateValue_(data[i][8])
+        created_by: normalizeEmail_(data[i][7]), created_at: dateValue_(data[i][8]), change_note: String(data[i][9] || '')
       });
     }
     return list.sort(function (a, b) { return b.version_num - a.version_num; });
@@ -153,6 +153,33 @@ var Store = (function () {
   }
 
   function listAcl(ss, artifactId) { return aclIndex_(ss)[artifactId] || []; }
+
+  function validateChangeNote_(value) {
+    if (value == null) return '';
+    if (typeof value !== 'string') throw new Error('更新メモの設定が不正です。');
+    const note = value.trim();
+    if (note.length > Constants.LIMITS.MAX_CHANGE_NOTE_LENGTH) throw new Error('更新メモは' + Constants.LIMITS.MAX_CHANGE_NOTE_LENGTH + '文字以内で入力してください。');
+    return note;
+  }
+
+  function ensureVersionChangeNoteColumn_(sheet) {
+    const legacyHeaders = ['version_id', 'artifact_id', 'version_num', 'drive_file_id', 'sha256', 'file_size', 'warnings_json', 'created_by', 'created_at'];
+    const currentColumns = sheet.getMaxColumns();
+    const headers = sheet.getRange(1, 1, 1, Math.min(10, currentColumns)).getValues()[0] || [];
+    if (headers[9] === 'change_note') return;
+    let occupiedUnknownColumn = false;
+    if (currentColumns >= 10) {
+      const reservedRange = sheet.getRange(1, 10, sheet.getMaxRows(), 1);
+      occupiedUnknownColumn = reservedRange.getValues().some(function (row) { return row[0] !== undefined && row[0] !== null && row[0] !== ''; }) ||
+        reservedRange.getFormulas().some(function (row) { return Boolean(row[0]); }) ||
+        reservedRange.getNotes().some(function (row) { return Boolean(row[0]); });
+    }
+    if (legacyHeaders.some(function (header, index) { return headers[index] !== header; }) || (headers[9] && headers[9] !== 'change_note') || occupiedUnknownColumn) {
+      throw new Error('versions のヘッダーが想定と異なります。バックアップを取り、列構成を確認してください。');
+    }
+    if (sheet.getMaxColumns() < 10) sheet.insertColumnsAfter(sheet.getMaxColumns(), 10 - sheet.getMaxColumns());
+    sheet.getRange(1, 10).setValue('change_note');
+  }
 
   /**
    * undoは書込みの前に登録し、サービスが「書込み後に例外」を返す場合も補償する。
@@ -313,14 +340,17 @@ var Store = (function () {
       }), tx.config, tx.actor);
       const file = tx.saveHtml(artifactId, 1, htmlContent);
       tx.appendRows(requireSheet_(tx.ss, Constants.SHEETS.ARTIFACTS), [[artifactId, title, description || '', tx.actor, tx.actor, versionId, visibility || Constants.VISIBILITY.ALL, Constants.STATUS.ACTIVE, now, now, '']]);
-      tx.appendRows(requireSheet_(tx.ss, Constants.SHEETS.VERSIONS), [[versionId, artifactId, 1, file.fileId, file.sha256, file.fileSize, JSON.stringify(warnings), tx.actor, now]]);
+      const versionSheet = requireSheet_(tx.ss, Constants.SHEETS.VERSIONS);
+      ensureVersionChangeNoteColumn_(versionSheet);
+      tx.appendRows(versionSheet, [[versionId, artifactId, 1, file.fileId, file.sha256, file.fileSize, JSON.stringify(warnings), tx.actor, now, '']]);
       tx.appendRows(requireSheet_(tx.ss, Constants.SHEETS.ACL), acls.map(function (acl) { return [artifactId, acl.email, acl.role, tx.actor, now]; }));
       tx.audit(Constants.ACTIONS.CREATE_ARTIFACT, artifactId, versionId, { title: title, visibility: visibility, warningCount: warnings.length });
       return { artifactId: artifactId, versionId: versionId, versionNum: 1 };
     });
   }
 
-  function uploadVersion(actorEmail, artifactId, htmlContent) {
+  function uploadVersion(actorEmail, artifactId, htmlContent, changeNote) {
+    const note = validateChangeNote_(changeNote);
     const warnings = Scanner.scan(htmlContent);
     return mutate_(actorEmail, function (tx) {
       const artifact = editableArtifact_(tx, artifactId);
@@ -329,11 +359,13 @@ var Store = (function () {
       const versionId = Utilities.getUuid();
       const now = new Date().toISOString();
       const file = tx.saveHtml(artifactId, versionNum, htmlContent);
-      tx.appendRows(requireSheet_(tx.ss, Constants.SHEETS.VERSIONS), [[versionId, artifactId, versionNum, file.fileId, file.sha256, file.fileSize, JSON.stringify(warnings), tx.actor, now]]);
+      const versionSheet = requireSheet_(tx.ss, Constants.SHEETS.VERSIONS);
+      ensureVersionChangeNoteColumn_(versionSheet);
+      tx.appendRows(versionSheet, [[versionId, artifactId, versionNum, file.fileId, file.sha256, file.fileSize, JSON.stringify(warnings), tx.actor, now, note]]);
       const sheet = requireSheet_(tx.ss, Constants.SHEETS.ARTIFACTS);
       tx.setValues(sheet, artifact.rowIndex, 6, [[versionId]]);
       tx.setValues(sheet, artifact.rowIndex, 10, [[now]]);
-      tx.audit(Constants.ACTIONS.UPLOAD_VERSION, artifactId, versionId, { versionNum: versionNum, warningCount: warnings.length });
+      tx.audit(Constants.ACTIONS.UPLOAD_VERSION, artifactId, versionId, { versionNum: versionNum, warningCount: warnings.length, changeNote: note });
       return { artifactId: artifactId, versionId: versionId, versionNum: versionNum };
     });
   }
@@ -454,10 +486,10 @@ var Store = (function () {
         createdBy: artifact.created_by, custodian: artifact.custodian, currentVersionId: artifact.current_version_id,
         visibility: artifact.visibility, updatedAt: artifact.updated_at },
       currentVersion: { versionId: version.version_id, versionNum: version.version_num, sha256: version.sha256,
-        fileSize: version.file_size, warnings: version.warnings, createdAt: version.created_at },
+        fileSize: version.file_size, warnings: version.warnings, createdAt: version.created_at, changeNote: version.change_note },
       versions: snapshot.versions.map(function (item) {
         return { versionId: item.version_id, versionNum: item.version_num, sha256: item.sha256, fileSize: item.file_size,
-          warningCount: item.warnings.length, createdBy: item.created_by, createdAt: item.created_at };
+          warningCount: item.warnings.length, createdBy: item.created_by, createdAt: item.created_at, changeNote: item.change_note };
       }),
       acls: editor ? snapshot.acls : [], isEditor: editor, isCustodian: normalizeEmail_(actorEmail) === artifact.custodian,
       rawHtml: cachedHtml_(version)

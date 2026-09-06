@@ -74,6 +74,7 @@ var Constants = (function () {
       DEFAULT_MAX_HTML_SIZE_KB: 1024,    // 1MB
       MAX_TITLE_LENGTH: 100,
       MAX_DESC_LENGTH: 200,
+      MAX_CHANGE_NOTE_LENGTH: 500,
       MAX_ACL_MEMBERS: 200,              // 管理責任者を除く正規化済み一意ユーザー数
       LOCK_TIMEOUT_MS: 30000            // 30秒
     },

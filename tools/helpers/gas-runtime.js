@@ -8,14 +8,17 @@ function createRuntime(options = {}) {
   const tables = {
     system_config: [['key', 'value'], ['SYSTEM_ENABLED', 'true'], ['STORAGE_FOLDER_ID', 'folder'], ['ALLOWED_DOMAIN', 'example.com'], ['MAX_HTML_SIZE_KB', '1024']],
     artifacts: [['id', 'title', 'description', 'created_by', 'custodian', 'version', 'visibility', 'status', 'created_at', 'updated_at', 'deleted_at']],
-    versions: [['id', 'artifact', 'num', 'file', 'sha', 'size', 'warnings', 'created_by', 'created_at']],
+    versions: [['version_id', 'artifact_id', 'version_num', 'drive_file_id', 'sha256', 'file_size', 'warnings_json', 'created_by', 'created_at', 'change_note']],
     acl: [['artifact', 'email', 'role', 'granted_by', 'granted_at']],
     audit_log: [['timestamp', 'user', 'action', 'artifact', 'version', 'details']]
   };
   const state = {
     tables, files: new Map(), cache: new Map(), writes: 0, reads: {}, flushes: 0,
     locked: false, failure: null, rollbackFailure: false, folderSearches: 0, logs: [],
+    formulas: Object.fromEntries(Object.keys(tables).map(name => [name, []])),
+    notes: Object.fromEntries(Object.keys(tables).map(name => [name, []])),
     maxRows: Object.fromEntries(Object.entries(tables).map(([name, data]) => [name, data.length])),
+    maxColumns: Object.fromEntries(Object.entries(tables).map(([name, data]) => [name, Math.max(...data.map(row => row.length), 1)])),
     rowExpansions: [], rowExpansionFailure: null
   };
   let uuid = 0;
@@ -45,6 +48,7 @@ function createRuntime(options = {}) {
       getName: () => name,
       getLastRow: () => lastRow(data),
       getMaxRows: () => state.maxRows[name],
+      getMaxColumns: () => state.maxColumns[name],
       getLastColumn: () => Math.max(...data.map(row => row.length), 0),
       getDataRange: () => ({ getValues: () => { state.reads[name] = (state.reads[name] || 0) + 1; return data.slice(0, lastRow(data)).map(row => row.slice()); } }),
       getRange: (row, col, height = 1, width = 1) => {
@@ -53,6 +57,8 @@ function createRuntime(options = {}) {
         }
         return ({
         getValues: () => Array.from({ length: height }, (_, i) => Array.from({ length: width }, (_, j) => data[row + i - 1]?.[col + j - 1] ?? '')),
+        getFormulas: () => Array.from({ length: height }, (_, i) => Array.from({ length: width }, (_, j) => state.formulas[name][row + i - 1]?.[col + j - 1] || '')),
+        getNotes: () => Array.from({ length: height }, (_, i) => Array.from({ length: width }, (_, j) => state.notes[name][row + i - 1]?.[col + j - 1] || '')),
         setValues: values => write(() => {
           values.forEach((cells, i) => cells.forEach((value, j) => {
             data[row + i - 1] ||= [];
@@ -77,6 +83,11 @@ function createRuntime(options = {}) {
         state.maxRows[name] += howMany;
         state.rowExpansions.push({ sheet: name, afterPosition, howMany });
         if (shouldFail) throw new Error(`injected row expansion failure: ${name}`);
+      },
+      insertColumnsAfter: (afterPosition, howMany) => {
+        if (!state.locked) throw new Error('column expansion outside lock');
+        if (afterPosition < 1 || afterPosition > state.maxColumns[name] || howMany < 1) throw new Error('Invalid column expansion');
+        state.maxColumns[name] += howMany;
       },
       appendRow: values => write(() => { data[lastRow(data)] = values.map(inputValue); }),
       deleteRow: row => write(() => data.splice(row - 1, 1))

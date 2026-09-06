@@ -22,15 +22,24 @@ function setupHarness(email = 'admin@example.com') {
   };
   function sheet(name) {
     const rows = [];
+    const formulas = [];
+    const notes = [];
     let maxColumns = 26;
     const style = { setFontWeight() { return this; }, setBackground() { return this; }, setFontColor() { return this; } };
     const result = {
       rows, getLastRow: () => rows.length,
       getName: () => name, getMaxColumns: () => maxColumns, getMaxRows: () => 1000,
       getLastColumn: () => rows.reduce((max, row) => Math.max(max, row.length), 0),
-      getDataRange: () => ({ getValues: () => rows.map(row => [...row]), isBlank: () => rows.every(row => row.every(cell => cell === '')), getNotes: () => [['']] }),
+      formulas, notes,
+      getDataRange: () => ({ getValues: () => rows.map(row => [...row]), isBlank: () => rows.every(row => row.every(cell => cell === '')), getFormulas: () => formulas.map(row => [...row]), getNotes: () => notes.length ? notes.map(row => [...row]) : [['']] }),
       appendRow(row) { rows.push([...row]); return result; },
-      getRange: (r, c, nr, nc) => ({ ...style, isBlank: () => rows.slice(r - 1, r - 1 + nr).every(row => row.slice(c - 1, c - 1 + nc).every(cell => cell === '')), getNotes: () => [['']] }), setFrozenRows() {},
+      getRange: (r, c, nr = 1, nc = 1) => ({ ...style,
+        isBlank: () => rows.slice(r - 1, r - 1 + nr).every(row => row.slice(c - 1, c - 1 + nc).every(cell => cell === '')),
+        getFormulas: () => Array.from({ length: nr }, (_, i) => Array.from({ length: nc }, (_, j) => formulas[r + i - 1]?.[c + j - 1] || '')),
+        getNotes: () => Array.from({ length: nr }, (_, i) => Array.from({ length: nc }, (_, j) => notes[r + i - 1]?.[c + j - 1] || '')),
+        setValue(value) { rows[r - 1] ||= []; rows[r - 1][c - 1] = value; return this; }
+      }), setFrozenRows() {},
+      insertColumnsAfter(after, count) { assert.equal(after, maxColumns); maxColumns += count; },
       deleteColumns(start, count) { assert.ok(start > 0 && count > 0 && start + count - 1 <= maxColumns); maxColumns -= count; }
     };
     sheets.set(name, result);
@@ -79,6 +88,41 @@ test('既存シートの列構成が異なる場合は上書きせず停止す�
   assert.throws(() => h.context.setupSystem_(), /列|ヘッダー/);
   assert.equal(h.folders.length, 0);
   assert.deepEqual(h.sheets.get('artifacts').rows, [['other-schema']]);
+});
+
+test('旧9列versionsヘッダーは既存行を保ったまま更新メモ列を追加する', () => {
+  const h = setupHarness();
+  h.context.setupSystem_();
+  const versions = h.sheets.get('versions');
+  versions.rows[0].pop();
+  versions.rows.push(['v1', 'a1', 1, 'file', 'sha', 10, '[]', 'owner@example.com', '2026']);
+  h.context.setupSystem_();
+  assert.equal(versions.rows[0][9], 'change_note');
+  assert.deepEqual(versions.rows[1].slice(0, 9), ['v1', 'a1', 1, 'file', 'sha', 10, '[]', 'owner@example.com', '2026']);
+});
+
+test('旧versionsのK列以降にある利用者独自列を保持して更新メモ列を追加する', () => {
+  const h = setupHarness();
+  h.context.setupSystem_();
+  const versions = h.sheets.get('versions');
+  versions.rows[0][9] = '';
+  versions.rows[0][10] = 'custom_note';
+  versions.rows.push(['v1', 'a1', 1, 'file', 'sha', 10, '[]', 'owner@example.com', '2026', '', '保持する値']);
+  h.context.setupSystem_();
+  assert.equal(versions.rows[0][9], 'change_note');
+  assert.equal(versions.rows[0][10], 'custom_note');
+  assert.equal(versions.rows[1][10], '保持する値');
+});
+
+test('旧versionsのJ列に空文字を返す数式がある場合は自動移行しない', () => {
+  const h = setupHarness();
+  h.context.setupSystem_();
+  const versions = h.sheets.get('versions');
+  versions.rows[0][9] = '';
+  versions.formulas[1] = [];
+  versions.formulas[1][9] = '=IF(TRUE,"","")';
+  assert.throws(() => h.context.setupSystem_(), /versions.*ヘッダー/);
+  assert.equal(versions.rows[0][9], '');
 });
 
 test('空の既存設定はDriveフォルダを作成する前に拒否する', () => {
@@ -175,7 +219,7 @@ test('空の初期シートと管理シートの未使用列を削除する', ()
   h.context.setupSystem_();
   assert.equal(h.sheets.has('シート1'), false);
   assert.equal(h.sheets.has('Sheet1'), false);
-  assert.deepEqual([...h.sheets].map(([name, s]) => [name, s.getMaxColumns()]), [['system_config', 3], ['artifacts', 11], ['versions', 9], ['acl', 5], ['audit_log', 6]]);
+  assert.deepEqual([...h.sheets].map(([name, s]) => [name, s.getMaxColumns()]), [['system_config', 3], ['artifacts', 11], ['versions', 10], ['acl', 5], ['audit_log', 6]]);
 });
 
 test('初期シートや余剰列にデータがあれば削除しない', () => {

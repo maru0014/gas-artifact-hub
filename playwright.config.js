@@ -21,7 +21,7 @@ module.exports = defineConfig({
   webServer: {
     command: 'node tools/e2e/server.js',
     url: 'http://127.0.0.1:4173/health',
-    reuseExistingServer: false,
+    reuseExistingServer: process.env.PLAYWRIGHT_REUSE_SERVER === '1',
     timeout: 15_000
   }
 });

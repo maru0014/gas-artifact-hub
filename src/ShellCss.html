@@ -148,7 +148,7 @@
     border: 1px solid var(--border);
     border-radius: 8px;
     padding: 4px;
-    width: 220px;
+    width: min(300px, calc(100vw - 24px));
     box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
     display: none;
     flex-direction: column;
@@ -162,9 +162,13 @@
     color: var(--text-muted);
     cursor: pointer;
     display: flex;
-    justify-content: space-between;
-    align-items: center;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 3px;
+    text-align: left;
   }
+  .version-item-top { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  .version-item-note { color: var(--text-sub); font-size: 11px; font-weight: 400; line-height: 1.35; overflow-wrap: anywhere; }
   .version-item:hover {
     background: var(--surface-sub);
     color: var(--text);

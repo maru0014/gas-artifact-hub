@@ -56,6 +56,48 @@ test('キャッシュ障害が閲覧・新版保存を失敗させない', () =>
   assert.equal([...f.state.files.values()].filter(file => !file.trashed).length, 2);
 });
 
+test('新版の更新メモを履歴へ保存し、Store境界でも最大500文字に制限する', () => {
+  const f = createRuntime(); f.seed();
+  const result = f.Store.uploadVersion('owner@example.com', 'artifact', '<h1>new</h1>', '  レイアウト調整  ');
+  const row = f.state.tables.versions.find(item => item[0] === result.versionId);
+  assert.equal(row[9], 'レイアウト調整');
+  const payload = f.Store.getArtifactForView('owner@example.com', 'artifact');
+  assert.equal(payload.currentVersion.changeNote, 'レイアウト調整');
+  assert.equal(payload.versions[0].changeNote, 'レイアウト調整');
+  const before = f.snapshot();
+  assert.throws(() => f.Store.uploadVersion('owner@example.com', 'artifact', '<h1>next</h1>', 'a'.repeat(501)), /500/);
+  assert.deepEqual(f.snapshot(), before);
+});
+
+test('旧9列versionsシートは次回の新版投稿時にchange_note列を追加する', () => {
+  const f = createRuntime(); f.seed();
+  f.state.tables.versions[0].pop();
+  f.state.maxColumns.versions = 9;
+  const result = f.Store.uploadVersion('owner@example.com', 'artifact', '<h1>migrated</h1>', '移行後');
+  assert.equal(f.state.tables.versions[0][9], 'change_note');
+  assert.equal(f.state.maxColumns.versions, 10);
+  assert.equal(f.state.tables.versions.find(row => row[0] === result.versionId)[9], '移行後');
+});
+
+test('見出しのない10列目に既存データがある場合は更新メモ列として上書きしない', () => {
+  const f = createRuntime(); f.seed();
+  f.state.tables.versions[0].pop();
+  f.state.tables.versions[1][9] = '既存の独自データ';
+  const before = f.snapshot();
+  assert.throws(() => f.Store.uploadVersion('owner@example.com', 'artifact', '<h1>new</h1>', 'メモ'), /ヘッダー|列構成/);
+  assert.deepEqual(f.snapshot(), before);
+});
+
+test('見出しのない10列目に空文字を返す数式がある場合は更新メモ列として上書きしない', () => {
+  const f = createRuntime(); f.seed();
+  f.state.tables.versions[0][9] = '';
+  f.state.formulas.versions[1] = [];
+  f.state.formulas.versions[1][9] = '=IF(TRUE,"","")';
+  const before = f.snapshot();
+  assert.throws(() => f.Store.uploadVersion('owner@example.com', 'artifact', '<h1>blocked</h1>', '移行しない'), /versions.*ヘッダー/);
+  assert.deepEqual(f.snapshot(), before);
+});
+
 test('タイトル・説明の先頭 = は式にせず、アポストロフィも往復で保存する', () => {
   const f = createRuntime();
   const result = f.Store.createArtifact('owner@example.com', '=1+1', "'quote", 'all', '<h1>test</h1>', []);

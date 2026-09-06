@@ -84,7 +84,7 @@ graph TB
 ### 4.1 アーティファクトの登録・新版投稿フロー
 1. ユーザーがポータル画面に単一HTMLファイルをドラッグ＆ドロップ（またはファイル選択）。
 2. クライアント側でHTMLファイルとタイトル等を確認する。新規IDはサーバーで生成し、新版は対象の既存IDを指定する。
-3. クライアントが `google.script.run.apiUploadArtifact(req)` または `apiUploadVersion(artifactId, htmlContent)` を呼び出す。全RPCで本人識別・許可ドメイン・稼働状態と入力を検証する。
+3. クライアントが `google.script.run.apiUploadArtifact(req)` または `apiUploadVersion(artifactId, htmlContent, changeNote)` を呼び出す。全RPCで本人識別・許可ドメイン・稼働状態と入力を検証する。
 4. Store内部の `withScriptLock_()` によりスクリプトロックを取得し、設定・既存アーティファクトの編集権限を再確認する。
 5. `Scanner.scan(html)` により静的検査を実行し、検出されたリスク項目と警告JSONを生成する。
 6. 実体HTMLをGoogle Driveの専用フォルダへUTF-8保存（ファイル名: `{artifact_id}_v{version_num}.html`）。メタデータ・版・必要なACLと監査ログを書き込み、flushする。失敗時は補償を試み、補償失敗時は `ROLLBACK_FAILED` を返す。

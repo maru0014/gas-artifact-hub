@@ -1,0 +1,38 @@
+<!-- 一覧と詳細で共有する新バージョン投稿ダイアログ -->
+<div class="modal-backdrop artifact-dialog artifact-dialog-layer" id="uploadModal" role="dialog" aria-modal="true" aria-labelledby="uploadModalTitle" inert>
+  <div class="modal-box">
+    <div class="modal-head">
+      <span id="uploadModalTitle">新しいバージョンを投稿</span>
+      <button class="btn-close-sm" data-dialog-close onclick="closeNewVersionModal()" aria-label="閉じる">
+        <svg class="icon" viewBox="0 0 24 24"><line x1="18" x2="6" y1="6" y2="18"/><line x1="6" x2="18" y1="6" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <button type="button" class="dropzone-mini" id="update-dropzone" onclick="document.getElementById('update-file-input').click()">
+        <svg class="icon" style="margin-bottom: 6px; color: var(--text-sub, #64748b);" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
+        <div style="font-weight: 600; font-size: 13px; color: var(--text, #1e293b);" id="update-file-label">HTMLファイルを選択またはドロップ</div>
+        <div style="font-size: 11px; color: var(--text-sub, #64748b);" id="update-file-sub">クリックしてファイルを選択 (.html / .htm)</div>
+      </button>
+      <input type="file" id="update-file-input" accept=".html,.htm" style="display: none;" onchange="handleUpdateFileInputChange(this.files)">
+      <div class="scan-card" id="updateScanCard" style="display: none;">
+        <div class="scan-header">
+          <svg class="icon" style="color: var(--badge-safe-text, #15803d);" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          <span id="update-scan-status-title">静的セキュリティ診断中...</span>
+        </div>
+        <div class="scan-row"><span>ファイルサイズ</span><span id="update-scan-filesize">-</span></div>
+        <div class="scan-row"><span>ネットワーク通信</span><span id="update-scan-network-status">-</span></div>
+        <div class="scan-row"><span>Cookie / 認証情報アクセス</span><span id="update-scan-auth-status">-</span></div>
+      </div>
+      <div class="dialog-field" style="margin-top: 14px;">
+        <label class="modal-label" for="update-change-note">更新メモ <span class="form-label-hint">(任意)</span></label>
+        <textarea class="modal-input form-textarea" id="update-change-note" rows="3" maxlength="500" placeholder="このバージョンで変更した内容"></textarea>
+        <span class="change-note-counter"><span id="update-change-note-count">0</span> / 500</span>
+      </div>
+      <p id="update-version-status" class="settings-status" role="status"></p>
+    </div>
+    <div class="modal-foot">
+      <button class="btn-action-ghost btn-header" data-dialog-close id="btn-close-version" onclick="closeNewVersionModal()">キャンセル</button>
+      <button class="btn-action-primary btn-header btn-header-primary" id="btn-submit-version" onclick="submitNewVersion()" disabled>新しいバージョンを公開する</button>
+    </div>
+  </div>
+</div>

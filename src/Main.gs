@@ -24,7 +24,7 @@ function doGet(e) {
 
 // 末尾の _ により google.script.run からの呼出しを禁止する。
 function include_(filename) {
-  if (!['UploadCss', 'UploadJs', 'ShellCss', 'ShellJs'].includes(filename)) throw new Error('許可されていないテンプレートです。');
+  if (!['UploadCss', 'UploadJs', 'ShellCss', 'ShellJs', 'ArtifactDialogsCss', 'ArtifactSettings', 'ArtifactVersionUpload'].includes(filename)) throw new Error('許可されていないテンプレートです。');
   return HtmlService.createHtmlOutputFromFile(filename).getContent();
 }
 
@@ -119,6 +119,14 @@ function validateHtml_(value, config) {
   return value;
 }
 
+function validateChangeNote_(value) {
+  if (value == null) return '';
+  if (typeof value !== 'string') throw new Error('更新メモは文字列で指定してください。');
+  const clean = value.trim();
+  if (clean.length > Constants.LIMITS.MAX_CHANGE_NOTE_LENGTH) throw new Error('更新メモは' + Constants.LIMITS.MAX_CHANGE_NOTE_LENGTH + '文字以内で入力してください。');
+  return clean;
+}
+
 function apiGetInitialData() {
   return runApi_((email, config) => ({ config: buildConfigPayload_(config, email), artifacts: Store.listVisibleArtifacts(email) }));
 }
@@ -146,8 +154,8 @@ function apiUploadArtifact(req) {
       validateHtml_(req.htmlContent, config), acls.map(entry => entry.email));
   });
 }
-function apiUploadVersion(artifactId, htmlContent) {
-  return runApi_((email, config) => Store.uploadVersion(email, validateId_(artifactId), validateHtml_(htmlContent, config)));
+function apiUploadVersion(artifactId, htmlContent, changeNote) {
+  return runApi_((email, config) => Store.uploadVersion(email, validateId_(artifactId), validateHtml_(htmlContent, config), validateChangeNote_(changeNote)));
 }
 function apiSwitchVersion(artifactId, versionId) {
   return runApi_(email => Store.switchVersion(email, validateId_(artifactId), validateId_(versionId)));

@@ -28,11 +28,13 @@
   function hideDialog_(id) {
     const dialog = document.getElementById(id);
     if (!dialog) return;
+    const wasShown = dialog.classList.contains('show');
     dialog.classList.remove('show');
     dialog.inert = true;
     const index = dialogStack_.lastIndexOf(id);
     if (index >= 0) dialogStack_.splice(index, 1);
-    if (dialog._previousFocus && dialog._previousFocus.isConnected) dialog._previousFocus.focus();
+    if (wasShown && dialog._previousFocus && dialog._previousFocus.isConnected) dialog._previousFocus.focus();
+    if (wasShown) dialog._previousFocus = null;
   }
   function setupDialogKeyboard_() {
     document.addEventListener('keydown', function (event) {
@@ -81,7 +83,8 @@
     file: null,
     htmlContent: '',
     fileReadId: 0,
-    busy: false
+    busy: false,
+    returnToSettings: false
   };
 
   /**
@@ -177,6 +180,7 @@
     loadArtifactDetails(initialVer);
     setupGlobalShortcuts();
     setupUpdateDropzone();
+    setupChangeNoteCounter_();
   });
 
   function setupGlobalShortcuts() {
@@ -344,8 +348,17 @@
       dateSpan.style.color = 'var(--text-sub)';
       dateSpan.textContent = dateStr;
 
-      item.appendChild(verSpan);
-      item.appendChild(dateSpan);
+      var topLine = document.createElement('span');
+      topLine.className = 'version-item-top';
+      topLine.appendChild(verSpan);
+      topLine.appendChild(dateSpan);
+      item.appendChild(topLine);
+      if (v.changeNote) {
+        var noteSpan = document.createElement('span');
+        noteSpan.className = 'version-item-note';
+        noteSpan.textContent = v.changeNote;
+        item.appendChild(noteSpan);
+      }
       dd.appendChild(item);
     });
   }
@@ -982,16 +995,31 @@
     }
   }
 
-  function openNewVersionModal() {
+  function openNewVersionModal(fromSettings) {
     if (updateState.busy || viewerState.loading || !viewerState.isEditor) return;
     resetUpdateModal();
+    updateState.returnToSettings = !!fromSettings;
+    var settings = document.getElementById('settingsModal');
+    if (updateState.returnToSettings) {
+      settings.inert = true;
+      settings.classList.add('artifact-dialog-behind');
+    }
+    document.getElementById('btn-close-version').textContent = updateState.returnToSettings ? '設定へ戻る' : 'キャンセル';
     showDialog_('uploadModal');
   }
 
   function closeNewVersionModal() {
     if (updateState.busy) return;
     ++updateState.fileReadId;
+    var returnToSettings = updateState.returnToSettings;
     hideDialog_('uploadModal');
+    updateState.returnToSettings = false;
+    if (returnToSettings) {
+      var settings = document.getElementById('settingsModal');
+      settings.inert = false;
+      settings.classList.remove('artifact-dialog-behind');
+      document.getElementById('btn-settings-new-version').focus();
+    }
   }
 
   function resetUpdateModal() {
@@ -1006,11 +1034,25 @@
     if (sub) sub.textContent = 'クリックしてファイルを選択 (.html / .htm)';
     var scanCard = document.getElementById('updateScanCard');
     if (scanCard) scanCard.style.display = 'none';
+    document.getElementById('update-change-note').value = '';
+    document.getElementById('update-version-status').textContent = '';
+    updateChangeNoteCounter_();
     var btn = document.getElementById('btn-submit-version');
     if (btn) {
       btn.disabled = true;
       btn.textContent = '新しいバージョンを公開する';
     }
+  }
+
+  function setupChangeNoteCounter_() {
+    var input = document.getElementById('update-change-note');
+    if (!input || typeof input.addEventListener !== 'function') return;
+    input.addEventListener('input', updateChangeNoteCounter_);
+    updateChangeNoteCounter_();
+  }
+
+  function updateChangeNoteCounter_() {
+    document.getElementById('update-change-note-count').textContent = document.getElementById('update-change-note').value.length;
   }
 
   function handleUpdateFileInputChange(files) {
@@ -1105,17 +1147,23 @@
     }
 
     var btn = document.getElementById('btn-submit-version');
+    var note = document.getElementById('update-change-note').value.trim();
+    var status = document.getElementById('update-version-status');
     btn.disabled = true;
     btn.textContent = '公開処理中...';
+    status.textContent = '新しいバージョンを保存しています...';
     updateState.busy = true;
+    setDialogDisabled_('uploadModal', true);
+    document.getElementById('uploadModal').querySelectorAll('[data-dialog-close]').forEach(function (control) { control.disabled = true; });
 
     google.script.run
       .withSuccessHandler(function (res) {
         updateState.busy = false;
-        btn.disabled = false;
+        setDialogDisabled_('uploadModal', false);
+        document.getElementById('uploadModal').querySelectorAll('[data-dialog-close]').forEach(function (control) { control.disabled = false; });
         btn.textContent = '新しいバージョンを公開する';
-        if (!res.ok) {
-          showToast('更新失敗: ' + res.error);
+        if (!res || !res.ok) {
+          status.textContent = '更新失敗: ' + ((res && res.error) || '応答を取得できませんでした');
           return;
         }
         closeNewVersionModal();
@@ -1124,11 +1172,12 @@
       })
       .withFailureHandler(function (err) {
         updateState.busy = false;
-        btn.disabled = false;
+        setDialogDisabled_('uploadModal', false);
+        document.getElementById('uploadModal').querySelectorAll('[data-dialog-close]').forEach(function (control) { control.disabled = false; });
         btn.textContent = '新しいバージョンを公開する';
-        showToast('通信エラー: ' + err.message);
+        status.textContent = '通信エラー: ' + err.message;
       })
-      .apiUploadVersion(viewerState.artifactId, updateState.htmlContent);
+      .apiUploadVersion(viewerState.artifactId, updateState.htmlContent, note);
   }
 
   // 設定モーダル
@@ -1147,6 +1196,7 @@
     settingsAclDraft.loaded = false;
     settingsAclDraft.original = [];
     settingsAclDraft.staged = [];
+    document.getElementById('settings-artifact-id').textContent = artifactId;
     document.getElementById('settings-title').value = art.title || '';
     document.getElementById('settings-desc').value = art.description || '';
     document.getElementById('settings-visibility').value = art.visibility || 'all';
@@ -1273,10 +1323,14 @@
   }
 
   function closeSettingsModal() {
-    if (settingsAclDraft.saving) return;
+    if (settingsAclDraft.saving || updateState.busy || document.getElementById('uploadModal').classList.contains('show')) return;
     ++settingsAclDraft.requestId;
     settingsAclDraft.loaded = false;
     hideDialog_('settingsModal');
+  }
+
+  function copySettingsArtifactId() {
+    copyText_(settingsAclDraft.artifactId, 'UUIDをコピーしました', '次のUUIDをコピーしてください');
   }
 
   function saveSettings() {

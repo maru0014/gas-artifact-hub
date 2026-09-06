@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const {scanHtml} = require('./scanner-rules');
+const {renderTemplate} = require('./html-template');
 
 function loadClient(file) {
   const elements = new Map();
@@ -42,6 +43,19 @@ function loadClient(file) {
   context.showToast = () => {};
   return {context, document, events, readers, calls};
 }
+
+test('一覧と詳細は同じ設定・新版投稿テンプレートを使用する', () => {
+  const upload = renderTemplate('Upload');
+  const shell = renderTemplate('Shell');
+  for (const html of [upload, shell]) {
+    assert.equal((html.match(/id="settingsModal"/g) || []).length, 1);
+    assert.equal((html.match(/id="uploadModal"/g) || []).length, 1);
+    assert.match(html, />表示名 </);
+    assert.match(html, /id="settings-artifact-id"/);
+    assert.match(html, /id="update-change-note"[^>]*maxlength="500"/);
+    assert.match(html, /onclick="openNewVersionModal\(true\)"/);
+  }
+});
 
 for (const file of ['UploadJs.html', 'ShellJs.html']) {
   test(`${file}: ストレージ禁止でも初期RPCを開始する`, () => {

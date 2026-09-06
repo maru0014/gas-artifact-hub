@@ -48,7 +48,7 @@ function setupSystem_(storageFolderId) {
   const definitions = [
     { name: Constants.SHEETS.SYSTEM_CONFIG, headers: ['key', 'value', 'description'] },
     { name: Constants.SHEETS.ARTIFACTS, headers: ['artifact_id', 'title', 'description', 'created_by', 'custodian', 'current_version_id', 'visibility', 'status', 'created_at', 'updated_at', 'deleted_at'] },
-    { name: Constants.SHEETS.VERSIONS, headers: ['version_id', 'artifact_id', 'version_num', 'drive_file_id', 'sha256', 'file_size', 'warnings_json', 'created_by', 'created_at'] },
+    { name: Constants.SHEETS.VERSIONS, headers: ['version_id', 'artifact_id', 'version_num', 'drive_file_id', 'sha256', 'file_size', 'warnings_json', 'created_by', 'created_at', 'change_note'] },
     { name: Constants.SHEETS.ACL, headers: ['artifact_id', 'email', 'role', 'granted_by', 'granted_at'] },
     { name: Constants.SHEETS.AUDIT_LOG, headers: ['timestamp', 'user', 'action', 'artifact_id', 'version_id', 'details'] }
   ];
@@ -59,8 +59,19 @@ function setupSystem_(storageFolderId) {
     for (const definition of definitions) {
       const sheet = ss.getSheetByName(definition.name);
       if (sheet && sheet.getLastRow() > 0) {
-        const headers = sheet.getDataRange().getValues()[0];
-        if (definition.headers.some((header, index) => headers[index] !== header)) {
+        const data = sheet.getDataRange().getValues();
+        const headers = data[0];
+        let hasReservedVersionColumnContent = false;
+        if (definition.name === Constants.SHEETS.VERSIONS && sheet.getMaxColumns() >= 10) {
+          const reservedRange = sheet.getRange(1, 10, sheet.getMaxRows(), 1);
+          hasReservedVersionColumnContent = data.some(function (row) { return row[9] !== undefined && row[9] !== null && row[9] !== ''; }) ||
+            reservedRange.getFormulas().some(function (row) { return Boolean(row[0]); }) ||
+            reservedRange.getNotes().some(function (row) { return Boolean(row[0]); });
+        }
+        const isLegacyVersions = definition.name === Constants.SHEETS.VERSIONS &&
+          definition.headers.slice(0, 9).every(function (header, index) { return headers[index] === header; }) &&
+          !hasReservedVersionColumnContent;
+        if (!isLegacyVersions && definition.headers.some((header, index) => headers[index] !== header)) {
           throw new Error(definition.name + ' のヘッダーが想定と異なります。バックアップを取り、列構成を確認してください。');
         }
       }
@@ -97,6 +108,13 @@ function setupSystem_(storageFolderId) {
         sheet.appendRow(definition.headers);
         sheet.getRange(1, 1, 1, definition.headers.length).setFontWeight('bold').setBackground('#1e293b').setFontColor('#f8fafc');
         sheet.setFrozenRows(1);
+      }
+      if (definition.name === Constants.SHEETS.VERSIONS && sheet.getLastRow() > 0) {
+        const headers = sheet.getDataRange().getValues()[0] || [];
+        if (!headers[9]) {
+          if (sheet.getMaxColumns() < 10) sheet.insertColumnsAfter(sheet.getMaxColumns(), 10 - sheet.getMaxColumns());
+          sheet.getRange(1, 10).setValue('change_note');
+        }
       }
     }
     // 定義外のデータ・数式・メモを残し、空の余剰列だけを削除する。

@@ -107,6 +107,18 @@ test('設定保存は入力検証後に単一のStore操作を呼ぶ', () => {
   ]);
 });
 
+test('新版投稿は更新メモを正規化し、500文字超をStore呼出し前に拒否する', () => {
+  const accepted = loadMain();
+  const result = accepted.context.apiUploadVersion('artifact-1', '<html>test</html>', '  変更内容  ');
+  assert.equal(result.ok, true);
+  assert.deepEqual(accepted.calls.find(call => call.name === 'uploadVersion').args,
+    ['member@example.com', 'artifact-1', '<html>test</html>', '変更内容']);
+
+  const rejected = loadMain();
+  assert.equal(rejected.context.apiUploadVersion('artifact-1', '<html>test</html>', 'a'.repeat(501)).ok, false);
+  assert.deepEqual(rejected.calls.filter(call => typeof call !== 'string'), []);
+});
+
 test('Main境界は管理責任者を除く200人を新規作成と設定保存で受け付ける', () => {
   const members = Array.from({ length: 200 }, (_, index) => `member${String(index).padStart(3, '0')}@example.com`);
   const upload = loadMain({ email: 'owner@example.com' });

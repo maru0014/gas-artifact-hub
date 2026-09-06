@@ -15,6 +15,7 @@
     var INITIAL_ARTIFACTS = <?!= initialArtifactsJson || 'null' ?>;
   </script>
   <?!= include_('UploadCss'); ?>
+  <?!= include_('ArtifactDialogsCss'); ?>
 </head>
 <body>
 
@@ -383,66 +384,8 @@
     </div>
   </aside>
 
-  <!-- アーティファクト設定編集モーダル（アーティファクト名・説明・用途・公開範囲） -->
-  <div class="modal-backdrop" id="editMetadataModal" role="dialog" aria-modal="true" aria-labelledby="editMetadataModalTitle">
-    <div class="modal-box">
-      <div class="modal-head">
-        <span id="editMetadataModalTitle">アーティファクトを編集</span>
-        <button class="btn-close-sm" data-dialog-close onclick="closeEditModal()" aria-label="閉じる">
-          <svg class="icon" viewBox="0 0 24 24"><line x1="18" x2="6" y1="6" y2="18"/><line x1="6" x2="18" y1="6" y2="18"/></svg>
-        </button>
-      </div>
-      <div class="modal-body">
-        <div class="edit-identity"><span>UUID</span><code id="edit-artifact-id"></code><button type="button" class="btn-action-ghost" id="btn-copy-edit-id" onclick="copyText_(editAclDraft.artifactId, 'UUIDをコピーしました', '次のUUIDをコピーしてください')">コピー</button></div>
-        <p id="editMetadataModal-status" class="settings-status" role="status"></p>
-        <div class="form-field">
-          <label class="form-label" for="edit-title-input">アーティファクト表示名 <span style="color: #ef4444;">*</span></label>
-          <input type="text" class="form-input" id="edit-title-input" maxlength="100">
-        </div>
-        <div class="form-field">
-          <label class="form-label" for="edit-desc-input">説明・用途 <span class="form-label-hint">(任意)</span></label>
-          <textarea class="form-textarea" id="edit-desc-input" rows="2" maxlength="200"></textarea>
-        </div>
-        <div class="form-field" style="margin-bottom: 0;">
-          <label class="form-label" for="edit-visibility-select">公開範囲</label>
-          <select class="form-input" id="edit-visibility-select" onchange="toggleEditAclSection()">
-            <option value="all">全社公開 (組織全体)</option>
-            <option value="list">限定公開 (特定メンバー)</option>
-            <option value="private">自分のみ (非公開)</option>
-          </select>
-        </div>
-        <div class="form-field acl-section" id="edit-acl-section" style="display: none; margin-bottom: 0;">
-          <label class="form-label">閲覧・編集を許可するメンバー</label>
-          <div id="edit-acl-rows"><!-- JSで行を描画 --></div>
-          <div class="acl-add-row">
-            <input type="email" class="form-input" id="edit-acl-email-input" placeholder="email@company.com">
-            <select class="form-input acl-role-select" id="edit-acl-role-select">
-              <option value="viewer">閲覧のみ</option>
-              <option value="editor">編集可</option>
-            </select>
-            <button class="btn-action-ghost" onclick="addAclMember()">追加</button>
-          </div>
-        </div>
-        <section class="edit-section" aria-labelledby="edit-version-title">
-          <h2 id="edit-version-title">バージョン更新</h2>
-          <p class="settings-status">新しいHTMLファイルで内容を更新します。外部通信やダウンロードを行う場合があります。静的検査は安全性を保証しません。名前・説明・公開範囲は下の「設定を保存」で保存してください。</p>
-          <label class="form-label" for="edit-version-file">新しいHTMLファイル</label>
-          <input type="file" class="form-input" id="edit-version-file" accept=".html,.htm">
-          <button type="button" class="btn-action-ghost" id="btn-edit-version" onclick="uploadEditVersion()">バージョンを更新</button>
-          <p id="edit-version-status" class="settings-status" role="status"></p>
-        </section>
-        <section class="edit-section" aria-labelledby="edit-delete-title">
-          <h2 id="edit-delete-title">削除</h2>
-          <p class="settings-status">削除すると、このアーティファクトにアクセスできなくなります。</p>
-          <button type="button" class="btn-action-ghost edit-delete-button" id="btn-edit-delete" onclick="confirmDeleteArtifact(editAclDraft.artifactId)">アーティファクトを削除</button>
-        </section>
-      </div>
-      <div class="modal-foot">
-        <button class="btn-action-ghost" data-dialog-close onclick="closeEditModal()">キャンセル</button>
-        <button class="btn-action-primary" id="btn-save-edit-metadata" onclick="saveEditMetadata()">設定を保存</button>
-      </div>
-    </div>
-  </div>
+  <?!= include_('ArtifactSettings'); ?>
+  <?!= include_('ArtifactVersionUpload'); ?>
 
   <!-- トースト通知 -->
   <div class="toast" id="toast" role="status" aria-live="polite">
