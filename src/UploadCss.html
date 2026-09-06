@@ -150,6 +150,14 @@
     text-decoration: none;
     transition: all 0.15s ease;
     margin-bottom: 2px;
+    min-width: 0;
+  }
+  .nav-label-text {
+    flex: 1 1 auto;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .nav-item:hover {
     background: var(--surface-sub);
@@ -168,6 +176,7 @@
     background: var(--surface-sub);
     color: var(--text-sub);
     font-family: 'JetBrains Mono', monospace;
+    flex-shrink: 0;
   }
   .nav-item.active .nav-badge {
     background: rgba(37, 99, 235, 0.15);
@@ -331,13 +340,16 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-bottom: 16px;
-    gap: 16px;
+    margin-bottom: 14px;
+    gap: 12px;
+    flex-wrap: wrap;
   }
   .toolbar-left {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 10px;
+    flex-wrap: wrap;
+    min-width: 0;
   }
   .page-title {
     font-size: 18px;
@@ -352,12 +364,19 @@
     padding: 2px 8px;
     border-radius: 9999px;
     font-weight: 500;
+    white-space: nowrap;
+  }
+  .last-updated-text {
+    font-size: 11px;
+    color: var(--text-sub);
+    white-space: nowrap;
   }
 
   .toolbar-right {
     display: flex;
     align-items: center;
     gap: 8px;
+    flex-wrap: wrap;
   }
   .segmented-control {
     display: flex;
@@ -391,8 +410,8 @@
   /* A. グリッド表示（カード） */
   .grid-view {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-    gap: 16px;
+    grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr));
+    gap: 12px;
   }
 
   /* スケルトンローディング＆シマーアニメーション */
@@ -528,11 +547,12 @@
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 10px;
-    padding: 16px;
+    padding: 12px;
     display: flex;
     flex-direction: column;
     transition: border-color 0.15s, box-shadow 0.15s;
     position: relative;
+    min-width: 0;
   }
   .card:hover {
     border-color: var(--border-strong);
@@ -542,8 +562,8 @@
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
-    gap: 12px;
-    margin-bottom: 10px;
+    gap: 8px;
+    margin-bottom: 8px;
   }
   .card-title-group {
     flex: 1;
@@ -555,22 +575,48 @@
     color: var(--text);
     margin-bottom: 2px;
     line-height: 1.4;
+    overflow-wrap: anywhere;
   }
-  .card-id {
+  .card-id-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
     font-family: 'JetBrains Mono', monospace;
-    font-size: 11px;
+    font-size: 10px;
     color: var(--text-sub);
+    background: var(--surface-sub);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 5px;
+    margin-top: 4px;
+    cursor: pointer;
+    text-decoration: none;
+    max-width: 100%;
+  }
+  .card-id-badge:hover {
+    color: var(--text);
+    border-color: var(--border-strong);
   }
   .card-desc {
     font-size: 13px;
     color: var(--text-muted);
-    line-height: 1.5;
-    margin-bottom: 14px;
-    flex: 1;
+    line-height: 1.4;
+    height: 2.8em;
+    margin-bottom: 8px;
     display: -webkit-box;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
+    overflow-wrap: anywhere;
+  }
+  .card-desc.is-empty {
+    color: var(--text-sub);
+    font-style: italic;
+  }
+  .card-desc:focus {
+    height: auto;
+    min-height: 2.8em;
+    -webkit-line-clamp: unset;
   }
 
   .badge-tag {
@@ -597,28 +643,76 @@
     border-color: var(--badge-warn-border);
   }
 
+  /* 公開範囲専用バッジ（全社公開を安全と誤認させない中立色） */
+  .badge-visibility {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    font-weight: 500;
+    padding: 2px 7px;
+    border-radius: 4px;
+    background: var(--surface-sub);
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .badge-visibility-all {
+    background: var(--surface-sub);
+    color: var(--text-muted);
+    border-color: var(--border-strong);
+  }
+  .badge-visibility-list {
+    background: var(--surface-sub);
+    color: var(--text-muted);
+    border-color: var(--border);
+  }
+  .badge-visibility-private {
+    background: var(--surface-sub);
+    color: var(--text-sub);
+    border-color: var(--border);
+  }
+  :root[data-theme="dark"] .badge-visibility-all {
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-muted);
+    border-color: var(--border-strong);
+  }
+
   .card-foot {
     display: flex;
     align-items: center;
     justify-content: space-between;
     margin-top: auto;
-    padding-top: 12px;
+    padding-top: 8px;
     border-top: 1px solid var(--border);
     font-size: 12px;
     color: var(--text-sub);
+    gap: 8px;
+    flex-wrap: wrap;
   }
   .author-info {
     display: flex;
     align-items: center;
     gap: 6px;
+    min-width: 0;
+    flex: 1 1 auto;
+    overflow: hidden;
+  }
+  .author-info span {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .card-actions {
     display: flex;
     align-items: center;
     gap: 6px;
+    flex-shrink: 0;
+    margin-left: auto;
   }
   .btn-action-ghost {
-    height: 28px;
+    min-height: 32px;
     padding: 0 8px;
     border-radius: 6px;
     background: transparent;
@@ -629,17 +723,25 @@
     cursor: pointer;
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     gap: 4px;
     transition: all 0.15s;
     text-decoration: none;
+    touch-action: manipulation;
   }
   .btn-action-ghost:hover {
     background: var(--surface-sub);
     color: var(--text);
+    border-color: var(--border-strong);
+  }
+  .btn-action-ghost.is-active {
+    background: var(--accent-subtle);
+    border-color: var(--accent);
+    color: var(--accent);
   }
   .btn-action-primary {
-    height: 28px;
-    padding: 0 10px;
+    min-height: 32px;
+    padding: 0 12px;
     border-radius: 6px;
     background: var(--accent);
     border: 1px solid transparent;
@@ -649,9 +751,11 @@
     cursor: pointer;
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     gap: 4px;
     text-decoration: none;
     transition: all 0.15s;
+    touch-action: manipulation;
   }
   .btn-action-primary:hover {
     background: var(--accent-hover);
@@ -662,27 +766,36 @@
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 10px;
-    overflow: hidden;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
     display: none;
+    max-width: 100%;
+  }
+  .table-view-wrapper:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
   }
   .data-table {
     width: 100%;
-    border-collapse: collapse;
+    min-width: 640px;
+    border-collapse: separate;
+    border-spacing: 0;
     text-align: left;
     font-size: 13px;
   }
   .data-table th {
     background: var(--surface-sub);
-    padding: 10px 16px;
+    padding: 10px 14px;
     font-size: 11px;
     font-weight: 600;
     color: var(--text-sub);
     text-transform: uppercase;
     letter-spacing: 0.05em;
     border-bottom: 1px solid var(--border);
+    white-space: nowrap;
   }
   .data-table td {
-    padding: 12px 16px;
+    padding: 10px 14px;
     border-bottom: 1px solid var(--border);
     vertical-align: middle;
     color: var(--text);
@@ -690,6 +803,54 @@
   .data-table tr:last-child td { border-bottom: none; }
   .data-table tr:hover td {
     background: var(--surface-sub);
+  }
+
+  /* テーブル操作列の sticky 固定 */
+  .data-table th.th-actions,
+  .data-table td.col-actions {
+    position: sticky;
+    right: 0;
+    background: var(--surface);
+    box-shadow: -3px 0 6px -2px rgba(0, 0, 0, 0.08);
+    z-index: 2;
+    white-space: nowrap;
+    text-align: right;
+  }
+  .data-table th.th-actions {
+    background: var(--surface-sub);
+    z-index: 3;
+  }
+  .data-table tr:hover td.col-actions {
+    background: var(--surface-sub);
+  }
+
+  /* テーブルのID列と説明文の省略表示 */
+  .data-table .th-id,
+  .data-table .col-id {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-sub);
+    max-width: 110px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .data-table .col-name {
+    min-width: 180px;
+    max-width: 280px;
+  }
+  .table-desc-text {
+    font-size: 11px;
+    color: var(--text-sub);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 100%;
+  }
+  .table-desc-text:focus {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
   }
 
   /* 全画面ドラッグ＆ドロップ用オーバーレイ */
@@ -1077,7 +1238,82 @@
   button, input, select, textarea { font: inherit; }
   button { touch-action: manipulation; }
   button:focus-visible, a:focus-visible, [tabindex]:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
-  .risk-notice { margin: 0; padding: 6px 16px; font-size: 11px; line-height: 1.5; color: var(--text-sub); background: var(--surface-sub); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  /* セキュリティ注意表示（アコーディオン） */
+  .risk-notice-banner {
+    margin: 0;
+    padding: 8px 24px;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text-muted);
+    background: var(--surface-sub);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-shrink: 0;
+    transition: all 0.15s ease;
+  }
+  .risk-notice-banner.is-collapsed {
+    padding: 6px 24px;
+  }
+  .risk-notice-main {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    min-width: 0;
+  }
+  .risk-notice-header {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 600;
+    color: var(--text);
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .risk-notice-icon {
+    color: var(--text-sub);
+  }
+  .risk-notice-text {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 12px;
+  }
+  .risk-notice-banner.is-collapsed .risk-notice-text {
+    display: none;
+  }
+  .btn-risk-toggle {
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 3px 8px;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-sub);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    white-space: nowrap;
+    flex-shrink: 0;
+    transition: all 0.15s ease;
+  }
+  .btn-risk-toggle:hover {
+    background: var(--surface);
+    color: var(--text);
+    border-color: var(--border-strong);
+  }
+  .risk-toggle-icon {
+    width: 12px;
+    height: 12px;
+    transition: transform 0.2s ease;
+  }
+  .risk-notice-banner.is-collapsed .risk-toggle-icon {
+    transform: rotate(180deg);
+  }
+
   .settings-status { font-size: 12px; line-height: 1.6; color: var(--text-sub); overflow-wrap: anywhere; }
   .dropzone-mini { width: 100%; color: var(--text); font: inherit; }
   .modal-box, .consent-box, .source-box { max-width: calc(100vw - 24px); }
@@ -1091,9 +1327,7 @@
   .acl-item { font: inherit; background: var(--surface); }
   .drawer { visibility: hidden; }
   .drawer.show { visibility: visible; }
-  .grid-view { grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr)); }
-  .list-view { overflow-x: auto; }
-  .list-view table { min-width: 650px; }
+  .grid-view { grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr)); }
   .card-head, .card-foot, .card-actions { flex-wrap: wrap; }
   .card-title, .card-id, .author-info { overflow-wrap: anywhere; }
   .search-box { min-width: 0; }
@@ -1108,12 +1342,20 @@
     .search-box { flex: 1 1 180px; width: auto; }
     .search-kbd { display: none; }
     .topbar-right { margin-left: auto; }
-    .btn-publish { padding: 0 10px; font-size: 12px; }
+    .btn-publish { padding: 0 10px; font-size: 12px; min-height: 36px; }
     .content-area { padding: 12px; }
-    .view-toolbar, .toolbar-left, .toolbar-right { flex-wrap: wrap; gap: 8px; }
+    .view-toolbar { flex-direction: column; align-items: stretch; gap: 8px; }
+    .toolbar-left, .toolbar-right { justify-content: space-between; }
     .page-title { font-size: 16px; }
-    .risk-notice { padding: 6px 12px; }
+    .risk-notice-banner { padding: 6px 12px; }
     .acl-add-row { flex-wrap: wrap; }
     .acl-add-row input { flex: 1 1 100%; }
+    .card-foot { flex-direction: column; align-items: stretch; gap: 8px; }
+    .author-info { width: 100%; }
+    .card-actions { width: 100%; justify-content: flex-end; }
+    .card-actions .btn-action-ghost,
+    .card-actions .btn-action-primary,
+    .col-actions .btn-action-ghost,
+    .col-actions .btn-action-primary { min-width: 44px; min-height: 44px; }
   }
 </style>

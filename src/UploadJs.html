@@ -51,10 +51,12 @@
   function setDialogDisabled_(id, disabled) {
     document.getElementById(id).querySelectorAll('input, textarea, select, button:not([data-dialog-close])').forEach(el => { el.disabled = disabled; });
   }
-  function copyText_(text) {
+  function copyText_(text, successMessage, promptMessage) {
+    var copiedMessage = successMessage || '共有リンクをコピーしました';
+    var manualMessage = promptMessage || '次のURLをコピーしてください';
     if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).then(() => showToast('共有リンクをコピーしました')).catch(() => window.prompt('次のURLをコピーしてください', text));
-    } else { window.prompt('次のURLをコピーしてください', text); }
+      navigator.clipboard.writeText(text).then(() => showToast(copiedMessage)).catch(() => window.prompt(manualMessage, text));
+    } else { window.prompt(manualMessage, text); }
   }
 
   var appConfig = {
@@ -162,6 +164,48 @@
     writeStorage_('hub_theme', next);
   }
 
+  function preferenceKey_(name) {
+    return name + '_' + (appConfig.userEmail || 'guest').toLowerCase();
+  }
+
+  function initUserPreferences_() {
+    initRiskNotice_();
+    var savedViewMode = readStorage_(preferenceKey_('hub_view_mode')) || 'grid';
+    switchViewMode(savedViewMode, true);
+  }
+
+  function initRiskNotice_() {
+    var isCollapsed = readStorage_(preferenceKey_('hub_risk_notice_collapsed')) === 'true';
+    applyRiskNoticeState_(isCollapsed);
+  }
+
+  function toggleRiskNotice() {
+    var banner = document.getElementById('riskNoticeBanner');
+    if (!banner) return;
+    var isCurrentlyCollapsed = banner.classList.contains('is-collapsed');
+    var nextCollapsed = !isCurrentlyCollapsed;
+    applyRiskNoticeState_(nextCollapsed);
+    writeStorage_(preferenceKey_('hub_risk_notice_collapsed'), String(nextCollapsed));
+  }
+
+  function applyRiskNoticeState_(collapsed) {
+    var banner = document.getElementById('riskNoticeBanner');
+    var btn = document.getElementById('btnRiskToggle');
+    var text = document.getElementById('riskToggleText');
+    if (!banner || !btn) return;
+    if (collapsed) {
+      banner.classList.add('is-collapsed');
+      btn.setAttribute('aria-expanded', 'false');
+      btn.setAttribute('aria-label', 'セキュリティ注意表示を展開する');
+      if (text) text.textContent = '詳細を表示';
+    } else {
+      banner.classList.remove('is-collapsed');
+      btn.setAttribute('aria-expanded', 'true');
+      btn.setAttribute('aria-label', 'セキュリティ注意表示を折りたたむ');
+      if (text) text.textContent = '折りたたむ';
+    }
+  }
+
 
 
 
@@ -171,6 +215,7 @@
   function applyConfig(cfg) {
     if (!cfg) return;
     appConfig = cfg;
+    initUserPreferences_();
     var email = appConfig.userEmail || '';
     document.getElementById('user-email-display').textContent = email || 'ゲスト (未認証)';
     var initial = email ? email.charAt(0).toUpperCase() : '?';
@@ -281,6 +326,24 @@
     });
   }
 
+  function setBusyState_(busy) {
+    var val = busy ? 'true' : 'false';
+    var contentArea = document.getElementById('contentArea');
+    if (contentArea) contentArea.setAttribute('aria-busy', val);
+    var gridView = document.getElementById('gridView');
+    if (gridView) gridView.setAttribute('aria-busy', val);
+    var listView = document.getElementById('listView');
+    if (listView) listView.setAttribute('aria-busy', val);
+  }
+
+  function formatTime_(date) {
+    var d = date || new Date();
+    var h = ('0' + d.getHours()).slice(-2);
+    var m = ('0' + d.getMinutes()).slice(-2);
+    var s = ('0' + d.getSeconds()).slice(-2);
+    return h + ':' + m + ':' + s;
+  }
+
   function loadArtifactList(showSkeleton) {
     const requestId = ++listRequestId_;
     const status = document.getElementById('status-message');
@@ -288,14 +351,18 @@
     status.style.display = 'none';
     refresh.classList.add('is-refreshing');
     refresh.disabled = true;
-    document.getElementById('gridView').setAttribute('aria-busy', 'true');
+    setBusyState_(true);
     if (!currentArtifacts.length || showSkeleton) renderSkeletonView();
     function finish(error) {
       refresh.classList.remove('is-refreshing');
       refresh.disabled = false;
-      document.getElementById('gridView').setAttribute('aria-busy', 'false');
+      setBusyState_(false);
       renderArtifacts(currentArtifacts);
-      if (error) { status.textContent = error + ' 「更新」で再試行できます。'; status.style.display = 'block'; }
+      var lastUpdated = document.getElementById('lastUpdatedStatus');
+      if (lastUpdated) {
+        lastUpdated.textContent = error ? '更新失敗' : '最終更新: ' + formatTime_();
+      }
+      if (error) { status.textContent = error + ' 「最新の状態に更新」で再試行できます。'; status.style.display = 'block'; }
     }
     google.script.run.withSuccessHandler(function (res) {
       if (requestId !== listRequestId_) return;
@@ -390,41 +457,64 @@
 
       var viewerUrl = getViewerUrl(art.artifactId);
       var updatedDate = art.updatedAt ? new Date(art.updatedAt).toLocaleDateString('ja-JP') : '';
-      var visText = art.visibility === 'all' ? '全社公開' : (art.visibility === 'list' ? '限定公開' : '自分のみ');
-
-      // 1. グリッドカード作成
-      var card = document.createElement('div');
-      card.className = 'card';
+      var visibility = art.visibility === 'all' || art.visibility === 'list' || art.visibility === 'private' ? art.visibility : 'private';
+      var visText = visibility === 'all' ? '全社公開' : (visibility === 'list' ? '限定公開' : '自分のみ');
+      var visClass = 'badge-visibility-' + visibility;
+      var visIcon = '';
+      if (visibility === 'all') {
+        visIcon = '<svg class="icon" style="width: 11px; height: 11px;" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>';
+      } else if (visibility === 'list') {
+        visIcon = '<svg class="icon" style="width: 11px; height: 11px;" viewBox="0 0 24 24" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>';
+      } else {
+        visIcon = '<svg class="icon" style="width: 11px; height: 11px;" viewBox="0 0 24 24" aria-hidden="true"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>';
+      }
+      var visBadgeHtml = `<span class="badge-visibility ${visClass}">${visIcon}<span>${escapeHtml(visText)}</span></span>`;
 
       var descHtml = (art.description && art.description.trim()) ?
-        `<p class="card-desc">${escapeHtml(art.description)}</p>` : '';
+        `<p class="card-desc" tabindex="0" aria-label="説明: ${escapeHtml(art.description)}">${escapeHtml(art.description)}</p>` :
+        `<p class="card-desc is-empty" title="説明はありません">説明はありません</p>`;
 
       var editBtnHtml = isOwner ?
-        `<button class="btn-action-ghost" onclick="event.stopPropagation(); toggleEditMenu(this, '${escapeHtml(art.artifactId)}')">編集</button>` : '';
+        `<button type="button" class="btn-action-ghost" onclick="event.stopPropagation(); toggleEditMenu(this, '${escapeHtml(art.artifactId)}')" title="編集" aria-label="編集">編集</button>` : '';
+
+      var favLabel = isFav ? 'お気に入りから解除' : 'お気に入りに追加';
+      var favIcon = isFav ?
+        '<svg class="icon" style="width: 13px; height: 13px; color: #d97706; fill: #d97706;" viewBox="0 0 24 24" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>' :
+        '<svg class="icon" style="width: 13px; height: 13px;" viewBox="0 0 24 24" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>';
 
       var favBtnHtml = `
-        <button class="btn-action-ghost" style="padding: 0 6px;" onclick="event.stopPropagation(); toggleFavorite('${escapeHtml(art.artifactId)}')" title="お気に入り登録" aria-label="お気に入り登録">
-          <svg class="icon" style="width: 13px; height: 13px; ${isFav ? 'color: #eab308; fill: #eab308;' : ''}" viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+        <button type="button" class="btn-action-ghost ${isFav ? 'is-active' : ''}" style="padding: 0 8px;" onclick="event.stopPropagation(); toggleFavorite('${escapeHtml(art.artifactId)}')" title="${favLabel}" aria-label="${favLabel}" aria-pressed="${isFav ? 'true' : 'false'}">
+          ${favIcon}
+          <span class="btn-label-text">${isFav ? '登録済' : 'お気に入り'}</span>
         </button>
       `;
 
       var shareBtnHtml = `
-        <button class="btn-action-ghost" style="padding: 0 6px;" onclick="event.stopPropagation(); copyLink('${escapeHtml(art.artifactId)}')" title="共有リンクをコピー" aria-label="共有リンクをコピー">
-          <svg class="icon" style="width: 13px; height: 13px;" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+        <button type="button" class="btn-action-ghost" style="padding: 0 8px;" onclick="event.stopPropagation(); copyLink('${escapeHtml(art.artifactId)}')" title="共有リンクをコピー" aria-label="共有リンクをコピー">
+          <svg class="icon" style="width: 13px; height: 13px;" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+          <span class="btn-label-text">共有</span>
         </button>
       `;
+
+      var idBadgeHtml = art.title ? `
+        <button type="button" class="card-id-badge" onclick="event.stopPropagation(); copyText_('${escapeHtml(art.artifactId)}', 'UUIDをコピーしました', '次のUUIDをコピーしてください');" title="UUID: ${escapeHtml(art.artifactId)} (クリックしてコピー)" aria-label="UUIDをコピー: ${escapeHtml(art.artifactId)}">
+          <svg class="icon" style="width: 10px; height: 10px;" viewBox="0 0 24 24" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+          <span>${escapeHtml(art.artifactId.length > 8 ? art.artifactId.slice(0, 8) + '…' : art.artifactId)}</span>
+        </button>
+      ` : '';
+
+      // 1. グリッドカード作成
+      var card = document.createElement('div');
+      card.className = 'card';
 
       if (activeViewMode_ === 'grid') {
       card.innerHTML = `
         <div class="card-head">
           <div class="card-title-group">
             <h2 class="card-title">${escapeHtml(art.title || art.artifactId)}</h2>
-            <div class="card-id">${escapeHtml(art.artifactId)}</div>
+            ${idBadgeHtml}
           </div>
-          <span class="badge-tag badge-safe">
-            <svg class="icon" style="width: 11px; height: 11px;" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-            ${escapeHtml(visText)}
-          </span>
+          ${visBadgeHtml}
         </div>
         ${descHtml}
         <div class="card-foot">
@@ -436,7 +526,7 @@
             ${favBtnHtml}
             ${shareBtnHtml}
             ${editBtnHtml}
-            <a href="${escapeHtml(viewerUrl)}" target="_top" class="btn-action-primary" onclick="event.stopPropagation(); launchViewer(this.href); return false;">起動</a>
+            <a href="${escapeHtml(viewerUrl)}" target="_top" class="btn-action-primary" onclick="event.stopPropagation(); launchViewer(this.href); return false;" aria-label="${escapeHtml(art.title || art.artifactId)}を起動">起動</a>
           </div>
         </div>
       `;
@@ -448,21 +538,24 @@
       var tr = document.createElement('tr');
       tr.className = 'table-row';
       tr.innerHTML = `
-        <td>
+        <td class="col-name">
           <div style="font-weight: 600; color: var(--text);">${escapeHtml(art.title || art.artifactId)}</div>
-          <div style="font-size: 11px; color: var(--text-sub);">${escapeHtml(art.description || '')}</div>
+          <div class="table-desc-text" tabindex="0" aria-label="説明: ${escapeHtml(art.description || '説明なし')}">${escapeHtml(art.description || '説明なし')}</div>
         </td>
-        <td><code>${escapeHtml(art.artifactId)}</code></td>
-        <td><span class="badge-tag">${escapeHtml(visText)}</span></td>
-        <td>${escapeHtml(authorName)}</td>
-        <td>${escapeHtml(updatedDate)}</td>
-        <td style="text-align: right;">
+        <td class="col-id" title="${escapeHtml(art.artifactId)}"><code>${escapeHtml(art.artifactId)}</code></td>
+        <td class="col-vis">${visBadgeHtml}</td>
+        <td class="col-author">${escapeHtml(authorName)}</td>
+        <td class="col-updated">${escapeHtml(updatedDate)}</td>
+        <td class="col-actions" style="text-align: right;">
           <div style="display: inline-flex; gap: 4px; align-items: center; justify-content: flex-end;">
-            <button class="btn-action-ghost" style="padding: 0 6px;" onclick="copyLink('${escapeHtml(art.artifactId)}')" title="共有リンクをコピー" aria-label="共有リンクをコピー">
-              <svg class="icon" style="width: 13px; height: 13px;" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+            <button type="button" class="btn-action-ghost ${isFav ? 'is-active' : ''}" style="padding: 0 6px;" onclick="toggleFavorite('${escapeHtml(art.artifactId)}')" title="${favLabel}" aria-label="${favLabel}" aria-pressed="${isFav ? 'true' : 'false'}">
+              ${favIcon}
+            </button>
+            <button type="button" class="btn-action-ghost" style="padding: 0 6px;" onclick="copyLink('${escapeHtml(art.artifactId)}')" title="共有リンクをコピー" aria-label="共有リンクをコピー">
+              <svg class="icon" style="width: 13px; height: 13px;" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
             </button>
             ${editBtnHtml}
-            <a href="${escapeHtml(viewerUrl)}" target="_top" class="btn-action-primary" onclick="launchViewer(this.href); return false;">起動</a>
+            <a href="${escapeHtml(viewerUrl)}" target="_top" class="btn-action-primary" onclick="launchViewer(this.href); return false;" aria-label="${escapeHtml(art.title || art.artifactId)}を起動">起動</a>
           </div>
         </td>
       `;
@@ -513,26 +606,29 @@
   }
 
   // 表示モード切替 (grid / list)
-  function switchViewMode(mode) {
-    activeViewMode_ = mode;
+  function switchViewMode(mode, skipSave) {
+    activeViewMode_ = mode === 'list' ? 'list' : 'grid';
     var gridView = document.getElementById('gridView');
     var listView = document.getElementById('listView');
     var btnGrid = document.getElementById('btnGrid');
     var btnList = document.getElementById('btnList');
 
-    if (mode === 'grid') {
-      gridView.style.display = 'grid';
-      listView.style.display = 'none';
-      btnGrid.classList.add('active');
-      btnList.classList.remove('active');
+    if (activeViewMode_ === 'grid') {
+      if (gridView) gridView.style.display = 'grid';
+      if (listView) listView.style.display = 'none';
+      if (btnGrid) btnGrid.classList.add('active');
+      if (btnList) btnList.classList.remove('active');
     } else {
-      gridView.style.display = 'none';
-      listView.style.display = 'block';
-      btnGrid.classList.remove('active');
-      btnList.classList.add('active');
+      if (gridView) gridView.style.display = 'none';
+      if (listView) listView.style.display = 'block';
+      if (btnGrid) btnGrid.classList.remove('active');
+      if (btnList) btnList.classList.add('active');
     }
-    btnGrid.setAttribute('aria-pressed', mode === 'grid');
-    btnList.setAttribute('aria-pressed', mode === 'list');
+    if (btnGrid) btnGrid.setAttribute('aria-pressed', activeViewMode_ === 'grid');
+    if (btnList) btnList.setAttribute('aria-pressed', activeViewMode_ === 'list');
+    if (!skipSave) {
+      writeStorage_(preferenceKey_('hub_view_mode'), activeViewMode_);
+    }
     renderArtifacts(currentArtifacts);
   }
 
