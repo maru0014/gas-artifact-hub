@@ -4,6 +4,7 @@ node_modules/
 Thumbs.db
 *.log
 .clasp.json
+.clasp.*.local.json
 .clasprc*.json
 .env
 .env.*

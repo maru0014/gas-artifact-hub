@@ -7,7 +7,7 @@ const root = path.resolve(__dirname, '..');
 const output = execFileSync('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], { cwd: root });
 const files = [...new Set(output.toString('utf8').split('\0').filter(Boolean))];
 const findings = [];
-const forbidden = /(^|\/)(?:\.clasp\.json|\.clasprc[^/]*\.json|\.env(?:\.(?!example$)[^/]+)?|(?:notion_page|planning_review|previous_project)_dump\.[^/]+|\.review_prompt_[^/]+|id_rsa|id_ed25519|credentials\.json)$/i;
+const forbidden = /(^|\/)(?:\.clasp(?!\.example\.json$)(?:\.[^/]+)?\.json|\.clasprc[^/]*\.json|\.env(?:\.(?!example$)[^/]+)?|(?:notion_page|planning_review|previous_project)_dump\.[^/]+|\.review_prompt_[^/]+|id_rsa|id_ed25519|credentials\.json)$/i;
 const outputDirs = /^(?:node_modules|reports|test-results|playwright-report|coverage)\//;
 const secretRules = [
   ['Google APIキー形式', /AIza[0-9A-Za-z_-]{35}/],
