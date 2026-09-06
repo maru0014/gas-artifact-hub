@@ -1,5 +1,43 @@
-/** 初回設定。Apps Scriptエディタから実行し、ブラウザRPCには公開しない。 */
-function setupSystem_() {
+/** シートを開いたときはメニューだけを追加する。認証が必要な初期化は行わない。 */
+function onOpen() {
+  SpreadsheetApp.getUi().createMenu('GAS Artifact Hub')
+    .addItem('初回セットアップ', 'runSetupFromMenu_')
+    .addToUi();
+}
+
+/** シートのメニュー専用。末尾の _ によりブラウザRPCには公開しない。 */
+function runSetupFromMenu_() {
+  const ui = SpreadsheetApp.getUi();
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName(Constants.SHEETS.SYSTEM_CONFIG);
+    const hasStorage = sheet && sheet.getDataRange().getValues().some(function (row) {
+      return row[0] === Constants.CONFIG_KEYS.STORAGE_FOLDER_ID && String(row[1] || '').trim();
+    });
+    let folderId = '';
+    if (hasStorage) {
+      if (ui.alert('セットアップ済みです', '既存の保存先・設定・データを保持して、空の初期シートと未使用列を整理します。続けますか？', ui.ButtonSet.OK_CANCEL) !== ui.Button.OK) return;
+    } else {
+      const response = ui.prompt('初回セットアップ',
+        'HTMLの保存先として使う専用フォルダのIDを入力してください（URLではなくID）。一般社員に直接共有していないフォルダを指定してください。\n空欄の場合は、マイドライブ直下に GAS-Artifact-Hub-Storage フォルダを作成します。',
+        ui.ButtonSet.OK_CANCEL);
+      if (response.getSelectedButton() !== ui.Button.OK) return;
+      folderId = response.getResponseText().trim();
+    }
+    // prompt/alertは実行を中断するため、対話を終えてからロックを取得する。
+    const result = setupSystem_(folderId);
+    ui.alert('セットアップ完了', '管理用の5シートを準備しました。\n保存先フォルダID: ' + result.folderId +
+      '\n次に、拡張機能 → Apps Script → デプロイからWebアプリを作成してください。実行ユーザーは「自分」、アクセスは「組織内」に設定します。', ui.ButtonSet.OK);
+  } catch (error) {
+    ui.alert('セットアップできませんでした', String(error.message || error), ui.ButtonSet.OK);
+  }
+}
+
+/** 初回設定の本体。対話を含めず、ブラウザRPCには公開しない。 */
+function setupSystem_(storageFolderId) {
+  if (storageFolderId !== undefined && typeof storageFolderId !== 'string') throw new Error('保存先フォルダIDは文字列で入力してください。');
+  const requestedFolderId = (storageFolderId || '').trim();
+  if (requestedFolderId && !/^[a-zA-Z0-9_-]+$/.test(requestedFolderId)) throw new Error('保存先フォルダIDが不正です。URLではなくフォルダIDだけを入力してください。');
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   if (!ss) throw new Error('スプレッドシートの「拡張機能 → Apps Script」から実行してください。');
   const email = String(Session.getActiveUser().getEmail() || '').trim().toLowerCase();
@@ -47,6 +85,12 @@ function setupSystem_() {
     if (!config.STORAGE_FOLDER_ID && artifactSheet && artifactSheet.getLastRow() > 1) {
       throw new Error('既存データの保存フォルダ設定がありません。新規作成せず、バックアップから設定を復旧してください。');
     }
+    if (config.STORAGE_FOLDER_ID && requestedFolderId && config.STORAGE_FOLDER_ID !== requestedFolderId) {
+      throw new Error('セットアップ済みの保存先フォルダは変更できません。既存の保存先を維持して再実行してください。');
+    }
+    // 指定先へのアクセス失敗では、自動作成やシート変更へ進まない。
+    const existingFolderId = config.STORAGE_FOLDER_ID || requestedFolderId;
+    let folder = existingFolderId ? DriveStore.getOrCreateStorageFolder(existingFolderId) : null;
     for (const definition of definitions) {
       const sheet = ss.getSheetByName(definition.name) || ss.insertSheet(definition.name);
       if (sheet.getLastRow() === 0) {
@@ -55,14 +99,53 @@ function setupSystem_() {
         sheet.setFrozenRows(1);
       }
     }
-    const folder = DriveStore.getOrCreateStorageFolder(config.STORAGE_FOLDER_ID || '');
+    // 定義外のデータ・数式・メモを残し、空の余剰列だけを削除する。
+    for (const definition of definitions) {
+      const sheet = ss.getSheetByName(definition.name);
+      const extraColumns = sheet.getMaxColumns() - definition.headers.length;
+      if (extraColumns > 0) {
+        const extra = sheet.getRange(1, definition.headers.length + 1, sheet.getMaxRows(), extraColumns);
+        if (extra.isBlank() && extra.getNotes().every(function (row) { return row.every(function (note) { return !note; }); })) {
+          sheet.deleteColumns(definition.headers.length + 1, extraColumns);
+        }
+      }
+    }
+    ['シート1', 'Sheet1'].forEach(function (name) {
+      const sheet = ss.getSheetByName(name);
+      if (!sheet) return;
+      const range = sheet.getDataRange();
+      if (range.isBlank() && range.getNotes().every(function (row) { return row.every(function (note) { return !note; }); })) ss.deleteSheet(sheet);
+    });
+    // シート準備を完了してから新規フォルダを作成し、保存先を最初に記録する。
+    SpreadsheetApp.flush();
+    const createdFolder = !folder;
+    if (!folder) folder = DriveStore.getOrCreateStorageFolder();
+    const folderId = folder.getId();
+    const configSheet = ss.getSheetByName(Constants.SHEETS.SYSTEM_CONFIG);
+    if (!config.STORAGE_FOLDER_ID) {
+      try {
+        configSheet.appendRow([Constants.CONFIG_KEYS.STORAGE_FOLDER_ID, folderId, 'HTML保存先。利用者へ直接共有しない']);
+        SpreadsheetApp.flush();
+      } catch (error) {
+        if (createdFolder) {
+          try {
+            // 書込み後に例外になった場合は、参照済みフォルダを削除しない。
+            const referenced = configSheet.getDataRange().getValues().some(function (row) {
+              return row[0] === Constants.CONFIG_KEYS.STORAGE_FOLDER_ID && String(row[1]) === folderId;
+            });
+            if (!referenced) folder.setTrashed(true);
+          } catch (rollbackError) {
+            throw new Error('ROLLBACK_FAILED: 保存先フォルダの状態を確認してください。ID: ' + folderId + ' / ' + String(error.message || error));
+          }
+        }
+        throw error;
+      }
+    }
     const initialRows = [
       [Constants.CONFIG_KEYS.SYSTEM_ENABLED, 'true', 'true: 稼働、false: 新しい読込・API操作を停止'],
-      [Constants.CONFIG_KEYS.STORAGE_FOLDER_ID, folder.getId(), 'HTML保存先。利用者へ直接共有しない'],
       [Constants.CONFIG_KEYS.ALLOWED_DOMAIN, domain, '同一Google Workspaceの許可ドメイン'],
       [Constants.CONFIG_KEYS.MAX_HTML_SIZE_KB, String(Constants.LIMITS.DEFAULT_MAX_HTML_SIZE_KB), 'HTMLのUTF-8サイズ上限（KB）']
     ];
-    const configSheet = ss.getSheetByName(Constants.SHEETS.SYSTEM_CONFIG);
     for (const row of initialRows) {
       if (!Object.prototype.hasOwnProperty.call(config, row[0])) configSheet.appendRow(row);
     }

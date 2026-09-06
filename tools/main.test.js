@@ -156,7 +156,7 @@ test('セットアップとincludeはブラウザから呼べる公開関数に�
   for (const filename of sources) {
     const content = fs.readFileSync(path.join(__dirname, '../src', filename), 'utf8');
     for (const match of content.matchAll(/^function\s+([A-Za-z_$][\w$]*)\s*\(/gm)) {
-      assert.ok(match[1].endsWith('_') || allowed.has(match[1]), `${filename}: 公開関数 ${match[1]}`);
+      assert.ok(match[1].endsWith('_') || allowed.has(match[1]) || (filename === 'Setup.gs' && match[1] === 'onOpen'), `${filename}: 公開関数 ${match[1]}`);
     }
   }
 });
