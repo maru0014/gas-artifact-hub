@@ -15,4 +15,18 @@
   .artifact-dialog-behind { pointer-events: none; }
   .artifact-dialog-behind .modal-box { filter: brightness(.96); }
   .artifact-dialog .change-note-counter { display: block; margin-top: 4px; text-align: right; font-size: 11px; color: var(--text-muted, #64748b); }
+  .artifact-dialog .acl-add-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+  .artifact-dialog .acl-add-row input,
+  .artifact-dialog .acl-add-row .modal-input { flex: 1 1 0; min-width: 0; width: auto; }
+  .artifact-dialog .acl-add-row select,
+  .artifact-dialog .acl-add-row .acl-role-select { flex: 0 0 auto; width: auto; min-width: 100px; height: 36px; padding: 0 8px; font-size: 12px; white-space: nowrap; box-sizing: border-box; }
+  .artifact-dialog .acl-add-row button { flex: 0 0 auto; width: auto; height: 36px; padding: 0 14px; white-space: nowrap; }
+  @media (max-width: 480px) {
+    .artifact-dialog .acl-add-row { flex-wrap: wrap; }
+    .artifact-dialog .acl-add-row input,
+    .artifact-dialog .acl-add-row .modal-input { flex: 1 1 100%; width: 100%; }
+    .artifact-dialog .acl-add-row select,
+    .artifact-dialog .acl-add-row .acl-role-select { flex: 1 1 auto; }
+    .artifact-dialog .acl-add-row button { flex: 0 0 auto; }
+  }
 </style>
