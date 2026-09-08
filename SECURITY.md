@@ -29,7 +29,7 @@
 
 ### ② ゼロトラスト・サンドボックス隔離（`null` Origin）
 - **`srcdoc` 注入による隔離**: 投稿された HTML は親フレームから `iframe.srcdoc = rawHtml` として注入されます。
-- **`allow-same-origin` の完全排除**: iframe の `sandbox` 属性には `allow-scripts allow-downloads allow-forms allow-popups allow-modals` のみを指定し、**`allow-same-origin` は絶対に含めません**。
+- **`allow-same-origin` の完全排除**: iframe の `sandbox` 属性には `allow-scripts allow-downloads allow-forms allow-popups allow-modals allow-popups-to-escape-sandbox` を指定し、**`allow-same-origin` は絶対に含めません**。外部リンクを別タブで開いた際の COOP 衝突（`ERR_BLOCKED_BY_RESPONSE`）を回避するため `allow-popups-to-escape-sandbox` を許可していますが、iframe 自体には `allow-same-origin` を含めないため親フレームの保護は維持されます（詳細は ADR-006 参照）。
 - これにより、ブラウザによってアーティファクトに不透明オリジン（opaque origin、すなわち `null` origin）が割り当てられ、親フレームの DOM、Cookie、Google セッション、および GAS の実行コンテキストへの直接アクセスがブラウザの同一オリジンポリシーによって遮断されます。
 
 ### ③ 蓄積型 XSS（Stored XSS）および CSV/Formula Injection 防止

@@ -69,7 +69,7 @@ gas-artifact-hub/
 ### 3.1 ゼロトラスト隔離（`null` origin）
 - 投稿されたHTMLは必ず親フレーム（`Shell.html`）から `iframe.srcdoc = rawHtml` として注入すること。
 - `sandbox` 属性には **絶対に `allow-same-origin` を含めないこと**。
-- `sandbox="allow-scripts allow-downloads allow-forms allow-popups allow-modals"` を遵守すること。
+- `sandbox="allow-scripts allow-downloads allow-forms allow-popups allow-modals allow-popups-to-escape-sandbox"` を遵守すること。
 
 ### 3.2 Stored XSS（蓄積型XSS）対策
 - HTMLソースコードを親フレームで表示する際、**絶対に `innerHTML` を使ってはならない**。必ず `element.textContent = rawHtml;` を代入すること。

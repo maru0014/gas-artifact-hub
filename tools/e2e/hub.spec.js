@@ -173,6 +173,23 @@ test('同意前は実行せず同意後もopaque originで親DOMを読めない'
   await page.screenshot({ path: testInfo.outputPath('viewer-running.png'), fullPage: true });
 });
 
+test('プレビューiframeのsandbox属性はCOOP互換で別タブを開け親DOMは隔離される', async ({ page, context }) => {
+  await prepare(page);
+  await page.goto('/?a=demo-artifact');
+  const sandboxAttr = await page.locator('#artifact-sandbox').getAttribute('sandbox');
+  expect(sandboxAttr).toContain('allow-popups-to-escape-sandbox');
+  expect(sandboxAttr).not.toContain('allow-same-origin');
+
+  await acceptConsent(page);
+  const pagePromise = context.waitForEvent('page');
+  await page.frameLocator('#artifact-sandbox').locator('#coop-link').click();
+  const newPage = await pagePromise;
+  await newPage.waitForLoadState();
+  await expect(newPage.locator('#coop-loaded')).toBeVisible();
+  await expect(newPage.locator('#coop-loaded')).toHaveText('COOPページ正常読み込み');
+  await newPage.close();
+});
+
 test('SourceはHTMLを文字として表示し共有リンクは現在の版に固定しない', async ({ page }) => {
   await prepare(page);
   await page.goto('/?a=demo-artifact&v=version-1');

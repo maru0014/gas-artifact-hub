@@ -22,7 +22,7 @@
 
 ## 決定事項
 **案C（`iframe.srcdoc` 注入 ＋ 厳格な `sandbox` 属性）を採用する。**
-- `sandbox="allow-scripts allow-downloads allow-forms allow-popups allow-modals"` を指定。
+- `sandbox="allow-scripts allow-downloads allow-forms allow-popups allow-modals allow-popups-to-escape-sandbox"` を指定（※外部リンクの別タブ閲覧時のCOOP互換性のため ADR-006 にて `allow-popups-to-escape-sandbox` を追加）。
 - **`allow-same-origin` は絶対に付与しない**。
 
 ## 影響とトレードオフ
