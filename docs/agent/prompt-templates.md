@@ -29,7 +29,7 @@ GAS Artifact Hub のセキュリティ実装において、以下のファイル
 - 対象ファイル: [ファイルパス]
 
 以下の観点で脆弱性や不備がないか厳格にレビューしてください：
-1. サンドボックス隔離: iframe.srcdoc 注入により null origin が確実に強制されているか？ sandbox 属性に「allow-same-origin」が絶対に付与されていないか？ allow-popups, allow-scripts 等の必要最小限構成になっているか？
+1. サンドボックス隔離: iframe.srcdoc 注入により null origin が確実に強制されているか？ sandbox 属性に「allow-same-origin」が絶対に付与されていないか？ allow-popups, allow-scripts, allow-popups-to-escape-sandbox 等の必要最小限構成になっているか？
 2. Stored XSS防止: ユーザー入力値やHTMLソースコードを表示する箇所で innerHTML が使われていないか？ textContent への代入や安全なエスケープが徹底されているか？
 3. 静的スキャナー: 外部URL属性の単方向タグ走査と、他ルールの改行・空白を考慮した正規表現が、それぞれ回帰試験で確認されているか？
 4. 同意バイパス防止: 初回同意キー（consentKey）がバージョン単位で分離され、v2.0更新時にConsent Bypassが起きないようになっているか？

@@ -200,3 +200,24 @@ for (const [file, processName, labelId, subId, cardId] of [
     assert.equal(document.getElementById(cardId).style.display, 'none');
   });
 }
+
+test('Shell.html: iframe#artifact-sandbox はCOOP互換属性を含み、allow-same-originを厳格に排除する', () => {
+  const html = renderTemplate('Shell');
+  const iframeMatch = html.match(/<iframe\b[^>]*\bid=["']artifact-sandbox["'][^>]*>/i);
+  assert.ok(iframeMatch, 'artifact-sandbox iframeが存在すること');
+  const sandboxMatch = iframeMatch[0].match(/\bsandbox=["']([^"']+)["']/i);
+  assert.ok(sandboxMatch, 'sandbox属性が存在すること');
+  const tokens = sandboxMatch[1].split(/\s+/).filter(Boolean);
+
+  // 必須ディレクティブ
+  assert.ok(tokens.includes('allow-scripts'), 'allow-scriptsを含むこと');
+  assert.ok(tokens.includes('allow-downloads'), 'allow-downloadsを含むこと');
+  assert.ok(tokens.includes('allow-forms'), 'allow-formsを含むこと');
+  assert.ok(tokens.includes('allow-popups'), 'allow-popupsを含むこと');
+  assert.ok(tokens.includes('allow-modals'), 'allow-modalsを含むこと');
+  assert.ok(tokens.includes('allow-popups-to-escape-sandbox'), 'allow-popups-to-escape-sandboxを含むこと');
+
+  // 厳格排除ディレクティブ
+  assert.ok(!tokens.includes('allow-same-origin'), 'allow-same-originを絶対に含めないこと');
+  assert.ok(!tokens.includes('allow-top-navigation'), 'allow-top-navigationを含めないこと');
+});

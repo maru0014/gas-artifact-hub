@@ -21,7 +21,7 @@ GAS Artifact Hub は、ゼロトラスト隔離環境（`null` origin）の ifra
 
 ## 2. サンドボックス隔離（`null` Origin）の制約と対策
 
-アーティファクトは `sandbox="allow-scripts allow-downloads allow-forms allow-popups allow-modals"` かつ `allow-same-origin` なしの隔離環境で実行されます。そのため、以下のブラウザ機能には制約があります：
+アーティファクトは `sandbox="allow-scripts allow-downloads allow-forms allow-popups allow-modals allow-popups-to-escape-sandbox"` かつ `allow-same-origin` なしの隔離環境で実行されます。そのため、以下のブラウザ機能には制約があります：
 
 ### ① 親フレームや GAS API へのアクセス不可
 - `window.parent`、`window.top`、`document.cookie` へのアクセスは、ブラウザの同一オリジンポリシー（`SecurityError`）によって遮断されます。
@@ -54,7 +54,7 @@ GAS Artifact Hub は、ゼロトラスト隔離環境（`null` origin）の ifra
    - すべてのスタイルを 1 つの <style> タグに、すべてのスクリプトを 1 つの <script> タグにまとめて記述してください。
    - 外部 CSS や外部 JS ライブラリの読み込みは行わず、標準の Web API と Vanilla JS / CSS で自己完結させてください。
 2. ゼロトラスト・サンドボックス対応:
-   - この HTML は sandbox="allow-scripts allow-downloads allow-forms allow-popups allow-modals" (allow-same-origin なし、null origin) で実行されます。
+   - この HTML は sandbox="allow-scripts allow-downloads allow-forms allow-popups allow-modals allow-popups-to-escape-sandbox" (allow-same-origin なし、null origin) で実行されます。
    - window.parent, window.top, document.cookie, google.script.run へのアクセスは一切行わないでください。
    - localStorage / sessionStorage に依存せず、メモリ内の状態管理、またはファイル入出力 (File API) で完結させてください。
 3. 外部通信とシークレット:

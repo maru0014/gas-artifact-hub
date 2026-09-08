@@ -23,6 +23,14 @@ const server = http.createServer((request, response) => {
     response.end(fs.readFileSync(path.join(__dirname, 'rpc-stub.js')));
     return;
   }
+  if (url.pathname === '/__test/coop-target') {
+    response.writeHead(200, {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cross-Origin-Opener-Policy': 'same-origin'
+    });
+    response.end('<!DOCTYPE html><html><body><h1 id="coop-loaded">COOPページ正常読み込み</h1></body></html>');
+    return;
+  }
   if (url.pathname !== '/') {
     response.writeHead(404).end();
     return;

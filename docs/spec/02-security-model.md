@@ -24,7 +24,7 @@ GAS Artifact Hub は、社内ユーザーが投稿した任意のHTML/JavaScript
 <iframe
   id="sandboxFrame"
   class="sandbox-iframe"
-  sandbox="allow-scripts allow-downloads allow-forms allow-popups allow-modals">
+  sandbox="allow-scripts allow-downloads allow-forms allow-popups allow-modals allow-popups-to-escape-sandbox">
 </iframe>
 ```
 
@@ -34,10 +34,10 @@ GAS Artifact Hub は、社内ユーザーが投稿した任意のHTML/JavaScript
 | `allow-forms` | **付与** | フォーム入力、検索・計算ボタンの送信処理に必須。 |
 | `allow-downloads` | **付与** | CSV出力、画像保存などのデータエクスポートに必須。 |
 | `allow-popups` | **付与** | 別タブでのヘルプ参照、Google Driveリンクの起動に必要。 |
+| `allow-popups-to-escape-sandbox` | **付与** | 外部リンクを別タブ（`target="_blank"` 等）で開いた際の COOP（Cross-Origin-Opener-Policy）衝突による `ERR_BLOCKED_BY_RESPONSE` を回避するために付与。別タブは親の sandbox を継承せず独立したトップレベルコンテキスト（通常の Web 閲覧モデル）で開かれる。親フレームの opaque origin 隔離には影響を与えない（詳細は [ADR-006](../adr/ADR-006-allow-popups-to-escape-sandbox.md) 参照）。 |
 | `allow-modals` | **付与** | `alert()`, `confirm()` 等のダイアログ表示に必要。 |
 | `allow-same-origin` | 🚨 **厳格に排除** | **絶対に付与してはならない**。付与すると親フレームと同一オリジンになり、親のDOMやGoogle認証情報へ不正アクセス可能になるため。 |
 | `allow-top-navigation` | 🚨 **厳格に排除** | 親ウィンドウのURLを悪意あるフィッシングサイトへ強制リダイレクトさせる攻撃を防ぐため。 |
-| `allow-popups-to-escape-sandbox` | 🚨 **厳格に排除** | 開いたポップアップにサンドボックス制限を継承させず、保護をすり抜ける攻撃を防ぐため。 |
 
 ---
 
