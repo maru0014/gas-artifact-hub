@@ -59,42 +59,49 @@ var Scanner = (function () {
     {
       category: 'NETWORK',
       name: 'NETWORK_FETCH',
+      severity: 'HIGH',
       pattern: /\bfetch\s*\(/gi,
       message: '外部サーバーとの通信 (fetch)'
     },
     {
       category: 'NETWORK',
       name: 'NETWORK_XHR',
+      severity: 'HIGH',
       pattern: /\bnew\s+XMLHttpRequest\s*\(/gi,
       message: '外部サーバーとの通信 (XMLHttpRequest)'
     },
     {
       category: 'NETWORK',
       name: 'NETWORK_SENDBEACON',
+      severity: 'HIGH',
       pattern: /navigator\s*\.\s*sendBeacon\s*\(/gi,
       message: '外部サーバーへのデータ送信 (sendBeacon)'
     },
     {
       category: 'NETWORK',
       name: 'NETWORK_EVENTSOURCE',
+      severity: 'HIGH',
       pattern: /\bnew\s+EventSource\s*\(/gi,
       message: 'Server-Sent Events (EventSource)'
     },
     {
       category: 'NETWORK',
       name: 'NETWORK_WEBSOCKET',
+      severity: 'HIGH',
       pattern: /\bnew\s+WebSocket\s*\(/gi,
       message: '双方向リアルタイム通信 (WebSocket)'
     },
     {
       category: 'NETWORK',
       name: 'NETWORK_WORKER',
+      severity: 'HIGH',
       pattern: /\bnew\s+(?:Shared)?Worker\s*\(/gi,
       message: 'バックグラウンドワーカー (Worker)'
     },
     {
       category: 'NETWORK',
       name: 'NETWORK_WEBRTC',
+      severity: 'HIGH',
       pattern: /\bnew\s+RTCPeerConnection\s*\(/gi,
       message: 'P2P通信 (RTCPeerConnection)'
     },
@@ -103,30 +110,35 @@ var Scanner = (function () {
     {
       category: 'EXTERNAL_TAG',
       name: 'TAG_BASE',
+      severity: 'HIGH',
       pattern: /<base\b/gi,
       message: '基準URLを変更する <base> タグ'
     },
     {
       category: 'EXTERNAL_TAG',
       name: 'TAG_META_REFRESH',
+      severity: 'HIGH',
       pattern: re_('<meta\\b' + ATTR + 'http-equiv\\s*=\\s*["\']\\s*refresh\\s*["\']', 'gi'),
       message: '自動リダイレクト (<meta refresh>)'
     },
     {
       category: 'EXTERNAL_TAG',
       name: 'TAG_EXTERNAL_URL_ATTR',
+      severity: 'MEDIUM',
       pattern: /<[a-zA-Z]/g,
       message: '外部リソースを読み込むタグ属性 (src, href等)'
     },
     {
       category: 'EXTERNAL_TAG',
       name: 'CSS_IMPORT_EXTERNAL',
+      severity: 'MEDIUM',
       pattern: /@import\s+(?:url\()?\s*["']?(?:https?:)?\/\/[^"')]+/gi,
       message: '外部スタイルシートのインポート (@import)'
     },
     {
       category: 'EXTERNAL_TAG',
       name: 'CSS_URL_EXTERNAL',
+      severity: 'MEDIUM',
       pattern: /url\(\s*["']?(?:https?:)?\/\/[^"')]+/gi,
       message: 'CSS内での外部リソース参照 (url(...))'
     },
@@ -135,18 +147,21 @@ var Scanner = (function () {
     {
       category: 'POPUP',
       name: 'POPUP_WINDOW_OPEN',
+      severity: 'MEDIUM',
       pattern: /\b(?:window\s*\.\s*)?open\s*\(/gi,
       message: '新しいウィンドウやポップアップを開く処理 (window.open)'
     },
     {
       category: 'POPUP',
       name: 'POPUP_TARGET_BLANK',
+      severity: 'LOW',
       pattern: /<a\b[^>]*?\btarget\s*=\s*["']_blank["']/gi,
       message: '別タブを開くリンク (target="_blank")'
     },
     {
       category: 'POPUP',
       name: 'NAV_LOCATION_ASSIGN',
+      severity: 'HIGH',
       pattern: /\b(?:window\s*\.\s*)?location\s*\.\s*(?:assign|replace)\s*\(\s*["'](?:https?:)?\/\//gi,
       message: '外部サイトへの画面遷移 (location.assign/replace)'
     },
@@ -155,18 +170,21 @@ var Scanner = (function () {
     {
       category: 'STORAGE',
       name: 'STORAGE_LOCAL',
+      severity: 'LOW',
       pattern: /\blocalStorage\b/g,
       message: 'ブラウザローカルストレージ (localStorage) の利用'
     },
     {
       category: 'STORAGE',
       name: 'STORAGE_SESSION',
+      severity: 'LOW',
       pattern: /\bsessionStorage\b/g,
       message: 'セッションストレージ (sessionStorage) の利用'
     },
     {
       category: 'STORAGE',
       name: 'STORAGE_INDEXEDDB',
+      severity: 'LOW',
       pattern: /\bindexedDB\b/g,
       message: 'ブラウザデータベース (indexedDB) の利用'
     },
@@ -175,18 +193,21 @@ var Scanner = (function () {
     {
       category: 'DYNAMIC_EVAL',
       name: 'EVAL_EXEC',
+      severity: 'HIGH',
       pattern: /\beval\s*\(/gi,
       message: '動的コード評価 (eval)'
     },
     {
       category: 'DYNAMIC_EVAL',
       name: 'NEW_FUNCTION',
+      severity: 'HIGH',
       pattern: /\bnew\s+Function\s*\(/gi,
       message: '文字列からの動的関数生成 (new Function)'
     },
     {
       category: 'DYNAMIC_EVAL',
       name: 'DYNAMIC_IMPORT',
+      severity: 'HIGH',
       pattern: /\bimport\s*\(/gi,
       message: '動的モジュール読み込み (dynamic import)'
     }
@@ -309,6 +330,7 @@ var Scanner = (function () {
     return {
       category: 'EXTERNAL_TAG',
       rule: 'SCAN_TRUNCATED',
+      severity: 'HIGH',
       line: lastLine || 1,
       snippet: '... (以降の警告は保存サイズ上限のため省略されました)',
       message: '警告数が多いため以降の検査結果を省略しました。完全な内容はソースコードを確認してください。',
@@ -514,6 +536,13 @@ var Scanner = (function () {
     }
     var cdnMeta = resolveCdnMetadata(details.fullUrl || details.url);
 
+    // 著名CDNのうち静的リソースのみ配信する（実行可能スクリプトを含まない）ものはLOWへ格下げ。
+    // cdnjs等の実行可能スクリプトCDNは第三者が任意パッケージをホストし得るため、格下げの対象外とする。
+    var severity = rule.severity || 'MEDIUM';
+    if (rule.category === 'EXTERNAL_TAG' && cdnMeta && cdnMeta.isExecutableScript === false) {
+      severity = 'LOW';
+    }
+
     // 重複排除キー（同一ルール・同一行・同一URL）
     var key = rule.name + ':' + lineNum + ':' + (details.fullUrl || details.url || pos);
     if (detectedKeys[key]) return false;
@@ -535,6 +564,7 @@ var Scanner = (function () {
     warnings.push({
       category: rule.category,
       rule: rule.name,
+      severity: severity,
       line: lineNum,
       snippet: snippet,
       message: formattedMessage,

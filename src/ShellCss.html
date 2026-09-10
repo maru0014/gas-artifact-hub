@@ -655,6 +655,45 @@
     background: var(--accent);
   }
 
+  /* 重要度別グルーピング見出し */
+  .severity-section-header {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    margin: 12px 0 6px;
+  }
+  .severity-section-header:first-child { margin-top: 0; }
+  .severity-high   { color: #991b1b; }
+  .severity-medium { color: #92400e; }
+
+  /* 低リスク項目の折りたたみ */
+  .low-severity-details {
+    margin-top: 12px;
+    padding-top: 8px;
+    border-top: 1px dashed var(--border-strong);
+  }
+  .low-severity-details summary {
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-sub);
+    list-style: none;
+  }
+  .low-severity-details summary::-webkit-details-marker { display: none; }
+  .low-severity-details summary::before {
+    content: '▶';
+    display: inline-block;
+    margin-right: 6px;
+    font-size: 9px;
+    transition: transform 0.15s;
+  }
+  .low-severity-details[open] summary::before {
+    transform: rotate(90deg);
+  }
+  .low-severity-details .warning-item-interactive {
+    margin-top: 6px;
+  }
+
   /* 公式配信メタデータバッジ */
   .safe-resource-badge {
     display: inline-flex;
