@@ -300,3 +300,92 @@ test('未引用属性値中の < を値として消費し、空白後の実src�
   assert.strictEqual(warnings[0].attribute, 'src');
   assert.strictEqual(warnings[0].url, 'https://assets.example/a.js');
 });
+
+test('severity: 静的リソースのみの著名CDN(Google Fonts)はLOWに格下げされる', () => {
+  const html = '<link href="https://fonts.googleapis.com/css2?family=Inter" rel="stylesheet">';
+  const warnings = scanHtml(html);
+  assert.strictEqual(warnings[0].cdnMeta.isExecutableScript, false);
+  assert.strictEqual(warnings[0].severity, 'LOW');
+});
+
+test('severity: 実行可能スクリプトを配信する著名CDN(Tailwind/cdnjs)はLOWに格下げしない', () => {
+  const html = '<script src="https://cdn.tailwindcss.com"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/lib/1.0/lib.js"></script>';
+  const warnings = scanHtml(html);
+  assert.strictEqual(warnings.length, 2);
+  warnings.forEach((w) => {
+    assert.strictEqual(w.cdnMeta.isExecutableScript, true);
+    assert.strictEqual(w.severity, 'MEDIUM', `${w.cdnMeta.name} はMEDIUMのまま維持されること`);
+  });
+});
+
+test('severity: eval・fetch・new Worker・<base>はHIGHに分類される', () => {
+  const html = `<base href="https://evil.example/">
+<script>
+  fetch("https://api.example.com/data");
+  eval("1");
+  new Worker("https://worker.example.com/w.js");
+</script>`;
+  const warnings = scanHtml(html);
+  const byRule = Object.fromEntries(warnings.map((w) => [w.rule, w]));
+  assert.strictEqual(byRule.TAG_BASE.severity, 'HIGH');
+  assert.strictEqual(byRule.NETWORK_FETCH.severity, 'HIGH');
+  assert.strictEqual(byRule.EVAL_EXEC.severity, 'HIGH');
+  assert.strictEqual(byRule.NETWORK_WORKER.severity, 'HIGH');
+});
+
+test('severity: target="_blank" と localStorage はLOWに分類される', () => {
+  const html = `<a href="#" target="_blank">link</a>
+<script>localStorage.setItem("k", "v");</script>`;
+  const warnings = scanHtml(html);
+  const byRule = Object.fromEntries(warnings.map((w) => [w.rule, w]));
+  assert.strictEqual(byRule.POPUP_TARGET_BLANK.severity, 'LOW');
+  assert.strictEqual(byRule.STORAGE_LOCAL.severity, 'LOW');
+});
+
+test('severity: 未省略時(SCAN_TRUNCATED)はHIGHで折りたたみに埋もれない', () => {
+  const longUrl = 'https://example.com/' + 'a'.repeat(300) + '?q=' + 'b'.repeat(200);
+  const html = Array.from({ length: 200 }, (_, i) => `<img src="${longUrl}&id=${i}">`).join('\n');
+  const warnings = scanHtml(html);
+  const truncated = warnings[warnings.length - 1];
+  assert.strictEqual(truncated.rule, 'SCAN_TRUNCATED');
+  assert.strictEqual(truncated.severity, 'HIGH');
+});
+
+// ShellJs.html のクライアント側フォールバック解決(resolveWarningSeverity_)を、
+// 実ファイルから抽出したソースで検証する。過去バージョン(severity欠落データ)との
+// 後方互換性を担保するロジックのため、Scanner.gsのRULES.severityと独立に確認する。
+test('resolveWarningSeverity_: severityフィールドが無い過去データをrule名からフォールバック解決する', () => {
+  const shellJsPath = path.join(__dirname, '..', 'src', 'ShellJs.html');
+  const shellJsSource = fs.readFileSync(shellJsPath, 'utf8');
+
+  const startMarker = 'var RULE_SEVERITY_FALLBACK_ = {';
+  const endMarker = '  // 警告メタデータの補完解決';
+  const startIdx = shellJsSource.indexOf(startMarker);
+  const endIdx = shellJsSource.indexOf(endMarker, startIdx);
+  assert.ok(startIdx !== -1 && endIdx !== -1, 'ShellJs.html からフォールバックロジックを抽出できること');
+
+  const snippet = shellJsSource.slice(startIdx, endIdx);
+  const context = {};
+  vm.createContext(context);
+  vm.runInContext(snippet, context);
+
+  // 新規スキャン分: severityフィールドがあればそれを優先
+  assert.strictEqual(context.resolveWarningSeverity_({ severity: 'HIGH', rule: 'STORAGE_LOCAL' }), 'HIGH');
+
+  // 過去データ想定: severityフィールドが無い
+  assert.strictEqual(context.resolveWarningSeverity_({ rule: 'EVAL_EXEC' }), 'HIGH');
+  assert.strictEqual(context.resolveWarningSeverity_({ rule: 'STORAGE_LOCAL' }), 'LOW');
+  assert.strictEqual(context.resolveWarningSeverity_({ rule: 'POPUP_TARGET_BLANK' }), 'LOW');
+  assert.strictEqual(
+    context.resolveWarningSeverity_({ rule: 'TAG_EXTERNAL_URL_ATTR', cdnMeta: { isExecutableScript: false } }),
+    'LOW'
+  );
+  assert.strictEqual(
+    context.resolveWarningSeverity_({ rule: 'TAG_EXTERNAL_URL_ATTR', cdnMeta: { isExecutableScript: true } }),
+    'MEDIUM'
+  );
+  assert.strictEqual(context.resolveWarningSeverity_({ rule: 'TAG_EXTERNAL_URL_ATTR' }), 'MEDIUM');
+
+  // 未知のruleは安全側でMEDIUM（無条件で隠さない）
+  assert.strictEqual(context.resolveWarningSeverity_({ rule: 'UNKNOWN_FUTURE_RULE' }), 'MEDIUM');
+});

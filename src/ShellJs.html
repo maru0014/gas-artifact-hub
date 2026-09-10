@@ -433,6 +433,32 @@
     return svg;
   }
 
+  // 重要度フォールバックテーブル（Scanner.gs の RULES.severity と一致させること）
+  // 過去バージョンとしてSheetsに保存された警告データにはseverityフィールドが存在しないため、
+  // rule名から解決する。rule名は安定した識別子であり過去データにも存在する。
+  var RULE_SEVERITY_FALLBACK_ = {
+    NETWORK_FETCH: 'HIGH', NETWORK_XHR: 'HIGH', NETWORK_SENDBEACON: 'HIGH', NETWORK_EVENTSOURCE: 'HIGH',
+    NETWORK_WEBSOCKET: 'HIGH', NETWORK_WEBRTC: 'HIGH', NETWORK_WORKER: 'HIGH',
+    TAG_BASE: 'HIGH', TAG_META_REFRESH: 'HIGH', NAV_LOCATION_ASSIGN: 'HIGH',
+    EVAL_EXEC: 'HIGH', NEW_FUNCTION: 'HIGH', DYNAMIC_IMPORT: 'HIGH',
+    TAG_EXTERNAL_URL_ATTR: 'MEDIUM', CSS_IMPORT_EXTERNAL: 'MEDIUM', CSS_URL_EXTERNAL: 'MEDIUM', POPUP_WINDOW_OPEN: 'MEDIUM',
+    POPUP_TARGET_BLANK: 'LOW', STORAGE_LOCAL: 'LOW', STORAGE_SESSION: 'LOW', STORAGE_INDEXEDDB: 'LOW',
+    SCAN_TRUNCATED: 'HIGH',
+    SCAN_UNAVAILABLE: 'HIGH' // Store.gs: 保存済み検査結果のJSONパース失敗時の破損通知
+  };
+  // Scanner.gs側のCDN格下げ条件（category === 'EXTERNAL_TAG'）と対象ruleを揃える
+  var EXTERNAL_TAG_RULES_ = { TAG_EXTERNAL_URL_ATTR: true, CSS_IMPORT_EXTERNAL: true, CSS_URL_EXTERNAL: true };
+
+  // 警告1件の重要度を解決する。w.severity（新規スキャン分）を優先し、無ければrule名から解決する。
+  function resolveWarningSeverity_(w) {
+    if (w.severity === 'HIGH' || w.severity === 'MEDIUM' || w.severity === 'LOW') return w.severity;
+    var base = RULE_SEVERITY_FALLBACK_[w.rule] || 'MEDIUM'; // 未知のruleは安全側でMEDIUM（無条件で隠さない）
+    if (base === 'MEDIUM' && EXTERNAL_TAG_RULES_[w.rule] && w.cdnMeta && w.cdnMeta.isExecutableScript === false) {
+      return 'LOW';
+    }
+    return base;
+  }
+
   // 警告メタデータの補完解決
   function resolveWarningMetadata(w) {
     if (w.rule === 'SCAN_TRUNCATED') {
@@ -498,87 +524,140 @@
     }
   }
 
+  // 警告1件分のDOM要素を生成する（consent-overlay / securityModal 共通）
+  function buildWarningItemNode(w, onItemClick) {
+    var meta = resolveWarningMetadata(w);
+
+    var item = document.createElement('div');
+    item.className = 'warning-item-interactive';
+    item.title = 'クリックするとソースコードの ' + w.line + ' 行目を表示します';
+
+    var badge = document.createElement('span');
+    var badgeClass = 'cat-badge ';
+    if (w.category === 'EXTERNAL_TAG') badgeClass += 'cat-badge-external';
+    else if (w.category === 'NETWORK') badgeClass += 'cat-badge-network';
+    else if (w.category === 'POPUP') badgeClass += 'cat-badge-popup';
+    else if (w.category === 'STORAGE') badgeClass += 'cat-badge-storage';
+    else if (w.category === 'DYNAMIC_EVAL') badgeClass += 'cat-badge-eval';
+    else badgeClass += 'cat-badge-all';
+    badge.className = badgeClass;
+    badge.textContent = w.category;
+
+    var content = document.createElement('div');
+    content.className = 'warning-content-col';
+
+    var mainMsg = document.createElement('div');
+    mainMsg.className = 'warning-main-msg';
+    mainMsg.textContent = meta.title;
+
+    if (w.cdnMeta) {
+      var safeBadge = document.createElement('span');
+      safeBadge.className = 'safe-resource-badge';
+      safeBadge.appendChild(createSvgIcon('0 0 24 24', null, '20 6 9 17 4 12'));
+      safeBadge.appendChild(document.createTextNode(' ' + (w.cdnMeta.label || '公式配信')));
+      mainMsg.appendChild(safeBadge);
+    }
+
+    content.appendChild(mainMsg);
+
+    if (w.url) {
+      var urlDiv = document.createElement('div');
+      urlDiv.style.marginTop = '2px';
+      var urlCode = document.createElement('code');
+      urlCode.className = 'warning-url-code';
+      urlCode.textContent = w.url;
+      urlDiv.appendChild(urlCode);
+      content.appendChild(urlDiv);
+    }
+
+    var descDiv = document.createElement('div');
+    descDiv.className = 'warning-detail-desc';
+    var infoIcon = createSvgIcon('0 0 24 24', null, null);
+    var circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    circle.setAttribute('cx', '12'); circle.setAttribute('cy', '12'); circle.setAttribute('r', '10');
+    infoIcon.appendChild(circle);
+    infoIcon.style.width = '12px';
+    infoIcon.style.height = '12px';
+    descDiv.appendChild(infoIcon);
+    descDiv.appendChild(document.createTextNode(' ' + meta.explanation));
+    content.appendChild(descDiv);
+
+    var lineSpan = document.createElement('span');
+    lineSpan.className = 'warning-line-link';
+    lineSpan.textContent = '行 ' + (w.line || '-') + ' ↗';
+
+    item.appendChild(badge);
+    item.appendChild(content);
+    item.appendChild(lineSpan);
+
+    item.onclick = function () {
+      onItemClick(w);
+    };
+
+    return item;
+  }
+
+  var SEVERITY_SECTION_DEFS_ = [
+    { id: 'HIGH', className: 'severity-high', label: '重要度: 高' },
+    { id: 'MEDIUM', className: 'severity-medium', label: '重要度: 中' }
+  ];
+
+  // 警告一覧を重要度別にグルーピングして描画する（consent-overlay / securityModal 共通）
+  // 戻り値: { highCount, mediumCount, lowCount } — 呼び出し元が説明文を組み立てるための集計
+  function renderWarningsList(containerEl, warnings, onItemClick) {
+    containerEl.innerHTML = '';
+
+    if (!warnings || warnings.length === 0) {
+      containerEl.innerHTML = '<div style="padding: 10px; font-size: 12px; color: var(--text-sub);">検出された項目はありません。</div>';
+      return { highCount: 0, mediumCount: 0, lowCount: 0 };
+    }
+
+    var groups = { HIGH: [], MEDIUM: [], LOW: [] };
+    warnings.forEach(function (w) {
+      groups[resolveWarningSeverity_(w)].push(w);
+    });
+
+    SEVERITY_SECTION_DEFS_.forEach(function (def) {
+      var items = groups[def.id];
+      if (items.length === 0) return;
+
+      var header = document.createElement('div');
+      header.className = 'severity-section-header ' + def.className;
+      header.textContent = def.label + ' (' + items.length + '件)';
+      containerEl.appendChild(header);
+
+      items.forEach(function (w) {
+        containerEl.appendChild(buildWarningItemNode(w, onItemClick));
+      });
+    });
+
+    if (groups.LOW.length > 0) {
+      var details = document.createElement('details');
+      details.className = 'low-severity-details';
+      // HIGH/MEDIUMが0件でLOWのみの場合に限り自動展開する。それ以外は既定で折りたたむ。
+      details.open = (groups.HIGH.length + groups.MEDIUM.length === 0);
+
+      var summary = document.createElement('summary');
+      summary.textContent = '重要度: 低（既知の安全な配信元・ブラウザ内保存など） (' + groups.LOW.length + '件) — クリックで表示';
+      details.appendChild(summary);
+
+      groups.LOW.forEach(function (w) {
+        details.appendChild(buildWarningItemNode(w, onItemClick));
+      });
+
+      containerEl.appendChild(details);
+    }
+
+    return { highCount: groups.HIGH.length, mediumCount: groups.MEDIUM.length, lowCount: groups.LOW.length };
+  }
+
   // 1. 同意確認モーダルの安全レンダリング (Stored XSS防止: textContent/DOM生成)
   function renderConsentModal(warnings) {
     var list = document.getElementById('consent-warnings-list');
     if (!list) return;
-    list.innerHTML = '';
 
-    if (!warnings || warnings.length === 0) {
-      list.innerHTML = '<div style="padding: 10px; font-size: 12px; color: var(--text-sub);">検出された項目はありません。</div>';
-      return;
-    }
-
-    warnings.forEach(function (w) {
-      var meta = resolveWarningMetadata(w);
-
-      var item = document.createElement('div');
-      item.className = 'warning-item-interactive';
-      item.title = 'クリックするとソースコードの ' + w.line + ' 行目を表示します';
-
-      var badge = document.createElement('span');
-      var badgeClass = 'cat-badge ';
-      if (w.category === 'EXTERNAL_TAG') badgeClass += 'cat-badge-external';
-      else if (w.category === 'NETWORK') badgeClass += 'cat-badge-network';
-      else if (w.category === 'POPUP') badgeClass += 'cat-badge-popup';
-      else if (w.category === 'STORAGE') badgeClass += 'cat-badge-storage';
-      else if (w.category === 'DYNAMIC_EVAL') badgeClass += 'cat-badge-eval';
-      else badgeClass += 'cat-badge-all';
-      badge.className = badgeClass;
-      badge.textContent = w.category;
-
-      var content = document.createElement('div');
-      content.className = 'warning-content-col';
-
-      var mainMsg = document.createElement('div');
-      mainMsg.className = 'warning-main-msg';
-      mainMsg.textContent = meta.title;
-
-      if (w.cdnMeta) {
-        var safeBadge = document.createElement('span');
-        safeBadge.className = 'safe-resource-badge';
-        safeBadge.appendChild(createSvgIcon('0 0 24 24', null, '20 6 9 17 4 12'));
-        safeBadge.appendChild(document.createTextNode(' ' + (w.cdnMeta.label || '公式配信')));
-        mainMsg.appendChild(safeBadge);
-      }
-
-      content.appendChild(mainMsg);
-
-      if (w.url) {
-        var urlDiv = document.createElement('div');
-        urlDiv.style.marginTop = '2px';
-        var urlCode = document.createElement('code');
-        urlCode.className = 'warning-url-code';
-        urlCode.textContent = w.url;
-        urlDiv.appendChild(urlCode);
-        content.appendChild(urlDiv);
-      }
-
-      var descDiv = document.createElement('div');
-      descDiv.className = 'warning-detail-desc';
-      var infoIcon = createSvgIcon('0 0 24 24', null, null);
-      var circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-      circle.setAttribute('cx', '12'); circle.setAttribute('cy', '12'); circle.setAttribute('r', '10');
-      infoIcon.appendChild(circle);
-      infoIcon.style.width = '12px';
-      infoIcon.style.height = '12px';
-      descDiv.appendChild(infoIcon);
-      descDiv.appendChild(document.createTextNode(' ' + meta.explanation));
-      content.appendChild(descDiv);
-
-      var lineSpan = document.createElement('span');
-      lineSpan.className = 'warning-line-link';
-      lineSpan.textContent = '行 ' + (w.line || '-') + ' ↗';
-
-      item.appendChild(badge);
-      item.appendChild(content);
-      item.appendChild(lineSpan);
-
-      item.onclick = function () {
-        jumpToSourceLine(w.line, true);
-      };
-
-      list.appendChild(item);
+    renderWarningsList(list, warnings, function (w) {
+      jumpToSourceLine(w.line, true);
     });
   }
 
@@ -849,84 +928,24 @@
     } else {
       var descP = document.createElement('p');
       descP.style.cssText = 'font-size: 13px; color: var(--text-muted); margin-bottom: 12px; line-height: 1.6;';
-      descP.textContent = 'このアーティファクトで検出された項目 (' + viewerState.warnings.length + '件) です。各項目をクリックするとソースコードの該当行を確認できます。';
       content.appendChild(descP);
 
       var box = document.createElement('div');
       box.className = 'warnings-box';
-      viewerState.warnings.forEach(function (w) {
-        var meta = resolveWarningMetadata(w);
-
-        var item = document.createElement('div');
-        item.className = 'warning-item-interactive';
-        item.title = 'クリックするとソースコードの ' + w.line + ' 行目を表示します';
-
-        var badge = document.createElement('span');
-        var badgeClass = 'cat-badge ';
-        if (w.category === 'EXTERNAL_TAG') badgeClass += 'cat-badge-external';
-        else if (w.category === 'NETWORK') badgeClass += 'cat-badge-network';
-        else if (w.category === 'POPUP') badgeClass += 'cat-badge-popup';
-        else if (w.category === 'STORAGE') badgeClass += 'cat-badge-storage';
-        else if (w.category === 'DYNAMIC_EVAL') badgeClass += 'cat-badge-eval';
-        else badgeClass += 'cat-badge-all';
-        badge.className = badgeClass;
-        badge.textContent = w.category;
-
-        var wContent = document.createElement('div');
-        wContent.className = 'warning-content-col';
-
-        var mainMsg = document.createElement('div');
-        mainMsg.className = 'warning-main-msg';
-        mainMsg.textContent = meta.title;
-
-        if (w.cdnMeta) {
-          var safeBadge = document.createElement('span');
-          safeBadge.className = 'safe-resource-badge';
-          safeBadge.appendChild(createSvgIcon('0 0 24 24', null, '20 6 9 17 4 12'));
-          safeBadge.appendChild(document.createTextNode(' ' + (w.cdnMeta.label || '公式配信')));
-          mainMsg.appendChild(safeBadge);
-        }
-
-        wContent.appendChild(mainMsg);
-
-        if (w.url) {
-          var urlDiv = document.createElement('div');
-          urlDiv.style.marginTop = '2px';
-          var urlCode = document.createElement('code');
-          urlCode.className = 'warning-url-code';
-          urlCode.textContent = w.url;
-          urlDiv.appendChild(urlCode);
-          wContent.appendChild(urlDiv);
-        }
-
-        var descDiv = document.createElement('div');
-        descDiv.className = 'warning-detail-desc';
-        var infoIcon = createSvgIcon('0 0 24 24', null, null);
-        var circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-        circle.setAttribute('cx', '12'); circle.setAttribute('cy', '12'); circle.setAttribute('r', '10');
-        infoIcon.appendChild(circle);
-        infoIcon.style.width = '12px';
-        infoIcon.style.height = '12px';
-        descDiv.appendChild(infoIcon);
-        descDiv.appendChild(document.createTextNode(' ' + meta.explanation));
-        wContent.appendChild(descDiv);
-
-        var lineSpan = document.createElement('span');
-        lineSpan.className = 'warning-line-link';
-        lineSpan.textContent = '行 ' + (w.line || '-') + ' ↗';
-
-        item.appendChild(badge);
-        item.appendChild(wContent);
-        item.appendChild(lineSpan);
-
-        item.onclick = function () {
-          closeSecurityModal();
-          jumpToSourceLine(w.line, false);
-        };
-
-        box.appendChild(item);
+      var counts = renderWarningsList(box, viewerState.warnings, function (w) {
+        closeSecurityModal();
+        jumpToSourceLine(w.line, false);
       });
       content.appendChild(box);
+
+      // 実際の表示状態と矛盾しないよう説明文を動的に組み立てる
+      var descText = 'このアーティファクトで検出された項目 (' + viewerState.warnings.length + '件) です。重要度順に分類して表示しています。';
+      var lowCollapsed = counts.lowCount > 0 && (counts.highCount + counts.mediumCount > 0);
+      if (lowCollapsed) {
+        descText += 'うち' + counts.lowCount + '件は既知の安全な配信元やブラウザ内保存など低リスクのため折りたたんでいます。';
+      }
+      descText += '各項目をクリックするとソースコードの該当行を確認できます。';
+      descP.textContent = descText;
 
       // ゼロトラスト安心バナー
       var banner = document.createElement('div');
